@@ -1,0 +1,1273 @@
+# RNA analysis with DESeq2
+
+```{r message=FALSE}
+library(dplyr)
+library(readr)
+library(DESeq2)
+library(pheatmap)
+library(rje)
+library(ashr)
+library(ggplot2)
+```
+
+
+## 1. Read count table
+
+```{r}
+#dir <- "/data/lvisser/rnaseq_ferroptomics/"
+
+countdata_fc_raw <- read.delim("rnaseq_ferroptomics/outputs/count_matrix/countmatrix.csv")
+countdataTPM_fc_raw <- read.delim("rnaseq_ferroptomics/outputs/count_matrix/countmatrix_tpm.csv")
+
+countdata_fc <- countdata_fc_raw %>%
+select(-c("gene_symbol", "Ensembl_ID", "length"))
+
+rownames(countdata_fc) <- countdata_fc_raw$Ensembl_ID
+
+#head(countdata_fc)
+print(colSums(is.na(countdata_fc)))
+print(dim(countdata_fc))
+print(colnames(countdata_fc))
+```
+
+## 2. Create sample table
+
+Parse column names of count table to make sample table
+
+```{r}
+sampleTable_exp <- read_csv("rnaseq_ferroptomics/MT_ferroptosis_metadata.csv") %>%
+mutate("Group" = factor(Group))
+
+head(sampleTable_exp)
+print(dim(sampleTable_exp))
+```
+
+# Full DESeq data object
+
+```{r}
+dds <- DESeqDataSetFromMatrix(countdata_fc, sampleTable_exp, ~1)
+dds$Group <- relevel(dds$Group, "R")
+# ( "~1" is just a place holder for the design formula which we will add later)
+
+dds <- estimateSizeFactors(dds)
+```
+
+#Sample distances
+
+Calculate a *distance matrix*, quantifying dissimilarity of the samples
+
+```{r}
+
+#Used different transformations
+distmat <- as.matrix(dist(t(log2(1 + counts(dds)))))
+distmat_norm <- as.matrix(dist(t( log2( 1 + counts(dds, normalized=TRUE) ) )))
+distmat_vst <- as.matrix(dist(t(assay(vst(dds))))) # Can only be performed if the DE is already performed
+
+# View( distmat )
+# View( distmat_norm )
+# View (distmat_vst)
+
+```
+
+Visualize the distance matrix as heatmap
+
+```{r fig.width=12, fig.height=12}
+
+dir.create("rnaseq_ferroptomics/DataExploration")
+
+jpeg("rnaseq_ferroptomics/DataExploration/Distance_matrix_as_heatmap_normalized_ALL.jpeg", width = 750, height = 750)
+pheatmap(distmat_norm)
+dev.off()
+
+jpeg("rnaseq_ferroptomics/DataExploration/Distance_matrix_as_heatmap_vst_ALL.jpeg", width = 750, height = 750)
+pheatmap(distmat_vst)
+dev.off()
+```
+
+Switch off clustering
+
+```{r fig.width=12, fig.height=12}
+
+jpeg("rnaseq_ferroptomics/DataExploration/Distance_matrix_noclus_as_heatmap_normalized_ALL.jpeg", width = 750, height = 750)
+pheatmap(distmat_norm,cluster_rows=FALSE, cluster_cols=FALSE)
+dev.off()
+
+jpeg("rnaseq_ferroptomics/DataExploration/Distance_matrix_noclus_as_heatmap_vst_ALL.jpeg", width = 750, height = 750)
+pheatmap(distmat_vst,cluster_rows=FALSE, cluster_cols=FALSE)
+dev.off()
+```
+
+#MATRIX OF SCATTERPLOTS
+
+```{r}
+
+library("RColorBrewer")
+
+# panel.smooth function is built in.
+# panel.cor puts correlation in upper panels, size proportional to correlation
+panel.cor <- function(x, y, digits=3, prefix="", cex.cor, ...)
+{
+    usr <- par("usr"); on.exit(par(usr))
+    par(usr = c(0, 1, 0, 1))
+    r <- abs(cor(x, y,use=c("complete.obs")))
+    txt <- format(c(r, 0.123456789), digits=digits)[1]
+    txt <- paste(prefix, txt, sep="")
+    if(missing(cex.cor)) cex.cor <- 0.8/strwidth(txt)
+    text(0.5, 0.5, txt, cex = cex.cor * r)
+}
+# Plot: add loess smoother in lower and correlation in upper
+#Add +columnA+columnB to add matrix dimensions
+
+jpeg("rnaseq_ferroptomics/DataExploration/RNAseq_scatterplot_matrix_bw.jpeg", width = 1500, height = 1500)
+pairs(log10(countdata_fc+1), lower.panel=panel.smooth, upper.panel=panel.cor,main="Scatterplot Matrix RNAseq")
+dev.off()
+
+jpeg("rnaseq_ferroptomics/DataExploration/RNAseq_Scatterplot_matrix_color.jpeg", width = 750, height = 750)
+pairs(log10(countdata_fc+1), 
+     lower.panel = function(...) smoothScatter(..., colramp = colorRampPalette(c(rev(brewer.pal(5,"RdYlBu")))), add = TRUE, nrpoints=0), upper.panel=panel.cor, pch=20, main="Scatterplot Matrix RNAseq")
+dev.off()
+
+```
+
+#PCA plot
+
+```{r}
+rld <- vst(dds)
+
+jpeg("rnaseq_ferroptomics/DataExploration/PCA_full.jpeg", width = 900, height = 900)
+# pcaplot(rld_full, intgroup=c("Group"),ellipse = FALSE)
+plotPCA(rld, intgroup = c("Group"))
+dev.off()
+
+```
+
+
+# Simple two-group comparison RIBO/RNA (2 * 2 conditions primed-nonprimed & potent-subpotent)
+
+For our setup, we want to compare Low and High against the WT (2 times a 2-group comparison)
+
+## 1. Subset the full data to these samples
+
+```{r}
+
+# Verifications
+all(rownames(colData(dds)) %in% colnames(dds))
+all(rownames(colData(dds)) == colnames(dds))
+
+# Calculate sizeFactors (should be 1, already done, see ELife manuscript)
+sizeFactors(dds)
+
+colData( dds)
+
+```
+
+## 2. Set design
+
+Comparing two types of samples, wich differ by a single covariate (here: `Condition`), ("a two-group comparison") is  straight-forward.
+
+Set the comparison type, i.e. indicate which column in the colData table contains the group information
+
+RNA-seq/Ribo test for "Group"
+
+
+```{r}
+dir.create("rnaseq_ferroptomics/DifferentialAnalysis")
+
+design(dds) <- ~ Group
+
+dds <- DESeq( dds )
+
+res <- results( dds )
+summary( res )
+res_RvsS <- res
+
+jpeg("rnaseq_ferroptomics/DifferentialAnalysis/dispersion_plot_RNA.jpeg", width = 1500, height = 1000)
+plotDispEsts( dds)
+dev.off()
+```
+
+## 4. Get the results
+
+```{r}
+
+resultsNames(dds)
+res <- results( dds, independentFiltering=TRUE, contrast=c("Group","R","S"), alpha=0.05) #Last level is the base level
+summary(res)
+
+res_lfc <- lfcShrink(dds, contrast = c("Group", "R", "S"), type = "ashr", lfcThreshold = 0, res = res)
+
+summary(res_lfc)
+
+res_RNA_RvsS <- res_lfc
+
+###CONSTRUCT THE SUMMARY TABLE OF ALL PADJ <= 0.05
+library('dplyr')
+library('tibble')
+
+contrast <- "rna_RvsS"
+res <- res_RNA_lowvswt
+
+FC <- paste("Log2FC_",contrast,sep="")
+p  <- paste("padj_",contrast,sep="")
+assign(paste("res_",contrast,sep=""), rownames_to_column(as.data.frame(res),"gene") %>% 
+  dplyr::filter(padj <= 0.05) %>%
+  dplyr::select(gene, log2FoldChange, padj) %>%
+  dplyr::rename(!!FC := log2FoldChange, !!p := padj))
+  
+##
+  
+overview_res <- res_RNA_RvsS
+rownames(overview_res) <- overview_res$gene
+
+# Get annotation data
+#You can select this from BioMart: Gene stable ID, Gene name, Gene type
+#Replace all ' with nothing
+annotdata <- read.table("DataTables/ensMart_hsa_104.txt",sep = '\t', header=TRUE)
+colnames(annotdata) <- c('ensg','name','type','description')
+#Check for non-unique ensg and remove duplicates if necessary
+n_occur <- data.frame(table(annotdata$ensg))
+n_occur[n_occur$Freq > 1,]
+annotdata[annotdata$ensg %in% n_occur$Var1[n_occur$Freq > 1],]
+# Manually erase from annotation file where necessary
+
+rownames(annotdata) <- annotdata$ensg
+annotdata <- annotdata[-1]
+head(annotdata[annotdata$type == "protein_coding",])
+
+#Merge with annotation (genesymbol and geneType)
+overview_res_annot <- merge(as.data.frame(annotdata),as.data.frame(overview_res),by="row.names",all.y= TRUE)
+overview_res_annot <- overview_res_annot[-1]
+#Reorder columns
+overview_res_annot <- overview_res_annot %>% dplyr::select(-description,description)
+## Order by adjusted p-value
+#overview_res_annot <- overview_res_annot[order(overview_res_annot$padj), ]
+
+write.table(overview_res_annot, file="bioinformatics/DifferentialAnalysis/overview_DE_select.tsv", sep ="\t")
+#Load in excel
+
+#Look at this to extract unique genes 
+#https://www.biostars.org/p/325009/#325036
+
+
+
+###CONSTRUCT THE SUMMARY TABLE OF ALL PADJ (NO 0.05 FILTER)
+library('dplyr')
+library('tibble')
+
+contrast <- "rna_lowvswt"
+res <- res_RNA_lowvswt
+
+FC <- paste("Log2FC_",contrast,sep="")
+p  <- paste("padj_",contrast,sep="")
+assign(paste("res_",contrast,sep=""), rownames_to_column(as.data.frame(res),"gene") %>% 
+  dplyr::select(gene, log2FoldChange, padj) %>%
+  dplyr::rename(!!FC := log2FoldChange, !!p := padj))
+  
+overview_res <- Reduce(function(x,y) merge(x,y,by="gene",all=TRUE) ,list(res_rna_lowvswt,res_rna_highvswt,res_ribo_lowvswt,res_ribo_highvswt))
+rownames(overview_res) <- overview_res$gene
+
+# Get annotation data
+#You can select this from BioMart: Gene stable ID, Gene name, Gene type
+#Replace all ' with nothing
+annotdata <- read.table("bioinformatics/DataTables/ensMart_hsa_104.txt",sep = '\t', header=TRUE)
+colnames(annotdata) <- c('ensg','name','type','description')
+#Check for non-unique ensg and remove duplicates if necessary
+n_occur <- data.frame(table(annotdata$ensg))
+n_occur[n_occur$Freq > 1,]
+annotdata[annotdata$ensg %in% n_occur$Var1[n_occur$Freq > 1],]
+# Manually erase from annotation file where necessary
+
+rownames(annotdata) <- annotdata$ensg
+annotdata <- annotdata[-1]
+head(annotdata[annotdata$type == "protein_coding",])
+
+#Merge with annotation (genesymbol and geneType)
+overview_res_annot <- merge(as.data.frame(annotdata),as.data.frame(overview_res),by="row.names",all.y= TRUE)
+overview_res_annot <- overview_res_annot[-1]
+#Reorder columns
+overview_res_annot <- overview_res_annot %>% dplyr::select(-description,description)
+
+
+write.table(overview_res_annot, file="bioinformatics/DifferentialAnalysis/overview_DE_all.tsv", sep ="\t")
+
+```
+
+MA plot
+
+```{r}
+jpeg("rnaseq_ferroptomics/DifferentialAnalysis/RNAseq_MAplot_R_vs_S.jpeg", width = 1500, height = 1000)
+plotMA(res_RNA_RvsS, ylim=c(-4,10))
+dev.off()
+```
+
+Other plotting functions
+## 5. Plotting: PCA, MA-plot, Volcano, heatmap, etc...
+
+```{r}
+# Set generic dds and res, condition, resdata and resdata_annot
+
+###########SECTION TO BE ADJUSTED#######
+contrast <- "R_vs_S"
+condition <- colData(dds)$Group
+condition_name <- "Group"
+celline <- "human"
+###########SECTION TO BE ADJUSTED#######
+
+DE_file_name <- paste("bioinformatics/DifferentialAnalysis/DE_results_",celline,"_",contrast,".csv", sep="" )
+
+resdata <- merge(as.data.frame(res), as.data.frame(counts(dds, normalized=TRUE)), by="row.names", sort=FALSE)
+
+names(resdata)[1] <- "Gene"
+head(resdata)
+rownames(resdata) <- resdata$Gene
+resdata <- resdata[-1]
+
+# Get annotation data
+annotdata <- read.table("bioinformatics/DataTables/ensMart_hsa_104.txt",sep = '\t', header=TRUE)
+colnames(annotdata) <- c('ensg','name','type','description')
+#Check for non-unique ensg and remove duplicates if necessary
+n_occur <- data.frame(table(annotdata$ensg))
+n_occur[n_occur$Freq > 1,]
+annotdata[annotdata$ensg %in% n_occur$Var1[n_occur$Freq > 1],]
+# Manually erase from annotation file where necessary
+
+rownames(annotdata) <- annotdata$ensg
+annotdata <- annotdata[-1]
+head(annotdata[annotdata$type == "protein_coding",])
+
+#Merge with annotation (genesymbol and geneType)
+resdata_annot <- merge(as.data.frame(resdata),as.data.frame(annotdata),by="row.names",all.x= TRUE)
+rownames(resdata_annot) <- resdata_annot$Row.names
+resdata_annot <- resdata_annot[-1]
+
+
+# Regularized log transformation for clustering/heatmaps, etc
+rld <- vst(dds)
+head(assay(rld))
+hist(assay(rld))
+
+# Colors for plots below
+## Ugly:
+## (mycols <- 1:length(unique(condition)))
+## Use RColorBrewer, better
+library(RColorBrewer)
+(mycols <- brewer.pal(8, "Dark2")[1:length(unique(condition))])
+
+# Sample distance heatmap
+
+sampleDists <- as.matrix(dist(t(assay(rld))))
+library(gplots)
+#png(paste("HEATMAP_",protocol,"_",celline,"_",contrast,".png", sep="" ), w=1000, h=1000, pointsize=20)
+heatmap.2(as.matrix(sampleDists), key=F, trace="none",
+          col=colorpanel(100, "black", "white"),
+          ColSideColors=mycols[condition], RowSideColors=mycols[condition],
+          margin=c(20, 20), main="Sample Distance Matrix")
+#dev.off()
+
+# Principal components analysis
+
+#dds <- dds_HEK293a[ , dds_HEK293a$Group  %in% c("gal","met") &  dds_full$OHMXID  != "OHMX20200025_010" ]
+
+#rld <- vst(dds)
+#png(paste("PCA_",protocol,"_", celline,"_",contrast,".png", sep="" ), w=1000, h=1000, pointsize=20)
+pcaplot(rld, intgroup=condition_name,ellipse = FALSE)
+#DESeq2::plotPCA(rld, intgroup=condition_name)
+#dev.off()
+
+## Order by adjusted p-value
+resdata_annot <- resdata_annot[order(resdata_annot$padj), ]
+## Order by abs(log2foldchange)
+#resdata_annot <- resdata_annot[order(-abs(resdata_annot$log2FoldChange)), ]
+
+## Write results
+write.csv(resdata_annot, DE_file_name)
+
+## Examine plot of p-values
+
+hist(resdata_annot$pvalue, breaks=50, col="grey")
+
+## Examine independent filtering
+#metadata(resdata_annot)$filterThreshold
+#attr(res, "filterThreshold")
+#plot(metadata(resdata_annot)$filterNumRej, type="b", xlab="quantiles of baseMean", ylab="number of rejections")
+
+## MA plot
+## Could do with built-in DESeq2 function:
+## DESeq2::plotMA(dds, ylim=c(-1,1), cex=1)
+## I like mine better:
+maplot <- function (res, thresh=0.05, labelsig=TRUE, textcx=1, ...) {
+  with(res, plot(baseMean, log2FoldChange, pch=20, cex=.5, log="x", ...))
+  with(subset(res, padj<thresh), points(baseMean, log2FoldChange, col="red", pch=20, cex=0.5))
+  if (labelsig) {
+    require(calibrate)
+    #with(subset(res, padj<thresh & abs(log2FoldChange) >= 1), textxy(baseMean, log2FoldChange, labs=type, cex=textcx, col=2))
+    #with(subset(res, padj<thresh ), textxy(baseMean, log2FoldChange, labs=symbol, cex=textcx, col=2))
+    #with(subset(res, symbol %in% c('DDIT3','HSPA5','ATF3') ), textxy(baseMean, log2FoldChange, labs=symbol, cex=textcx))
+  }
+}
+#png("diffexpr-maplot-symbol-highres.png", 3000, 2000, pointsize=20)
+png(paste("bioinformatics/DifferentialAnalysis/DE_MAplot_",protocol,"_",celline,"_",contrast,".png", sep=""), 1500, 1000, pointsize=20)
+maplot(resdata_annot, main="MA Plot", ylim=c(-10,10))
+dev.off()
+
+resdata_annot_notnull <- resdata_annot %>% dplyr::filter(padj !=0)
+minpvaladj <- min(resdata_annot_notnull$padj, na.rm = TRUE)
+
+## Volcano plot with "significant" genes labeled
+volcanoplot <- function (res, lfcthresh=2, sigthresh=0.05, main="Volcano Plot", legendpos="bottomleft", labelsig=TRUE, textcx=1, ...) {
+  with(res, plot(log2FoldChange, -log10(pvalue+minpvaladj), pch=20, main=main, ...))
+  with(subset(res, padj<sigthresh ), points(log2FoldChange, -log10(pvalue+minpvaladj), pch=20, col="red", ...))
+  with(subset(res, abs(log2FoldChange)>lfcthresh), points(log2FoldChange, -log10(pvalue+minpvaladj), pch=20, col="orange", ...))
+  with(subset(res, padj<sigthresh & abs(log2FoldChange)>lfcthresh), points(log2FoldChange, -log10(pvalue+minpvaladj), pch=20, col="green", ...))
+  if (labelsig) {
+    require(calibrate)
+    #with(subset(res, padj<sigthresh ), textxy(log2FoldChange, -log10(pvalue), labs=symbol, cex=textcx, ...))
+    #with(subset(res, -log10(padj) > 150 ), textxy(log2FoldChange, -log10(pvalue), labs=symbol, cex=textcx, ...))
+    #with(subset(res, symbol %in% c('DDIT3','HSPA5','ATF3','SEL1L') ), textxy(log2FoldChange, -log10(pvalue+minpvaladj), labs=symbol, cex=textcx, ...))
+  }
+  legend(legendpos, xjust=1, yjust=1, legend=c(paste("FDR<",sigthresh,sep=""), paste("|LogFC|>",lfcthresh,sep=""), "both"), pch=20, col=c("red","orange","green"))
+}
+#png("diffexpr-volcanoplot-type-highres.png", 2400, 2000, pointsize=20)
+png(paste("bioinformatics/DifferentialAnalysis/DE_volcano_",protocol,"_",celline,"_",contrast,".png", sep=""), 1200, 1000, pointsize=20)
+volcanoplot(resdata_annot, lfcthresh=1, sigthresh=0.05, textcx=.8, xlim=c(-10, 10), ylim=c(0,10))
+dev.off()
+
+```
+
+# Heatmap of top expression results
+
+```{r}
+
+###
+# res_HEK293a_h_vs_c_lfc
+# res_HEK293a_l_vs_c_lfc
+# res_HEK293a_g_vs_c_lfc
+# res_HEK293a_m_vs_c_lfc
+# res_HEK293a_h_vs_m_lfc
+# res_HEK293a_l_vs_m_lfc
+# res_HEK293a_h_vs_g_lfc
+# res_HEK293a_l_vs_g_lfc
+# res_HEK293a_h_vs_l_lfc
+# res_HEK293a_g_vs_m_lfc
+###
+
+###########SECTION TO BE ADJUSTED#######
+#dds <- dds_HEK293a[ , dds_HEK293a$Group  %in% c("gal","met") &  dds_full$OHMXID  != "OHMX20200025_010" ] #Example to exclude a sample by OHMXID
+dds <- dds_HEK293a[ , dds_HEK293a$Group  %in% c("gal","met") ]
+res <-  res_HEK293a_g_vs_m_lfc
+contrast <- "gal_met"
+condition <- colData(dds)$Group
+condition_name <- "Group"
+celline <- "mouse"
+###########SECTION TO BE ADJUSTED#######
+
+
+library("pheatmap")
+
+vsd <- vst(dds)
+vsd_assay <- assay(vsd)
+vsd_assay <- as.data.frame(vsd_assay)
+vsd_assay$Gene <- rownames(vsd_assay)
+
+
+## Merge with normalized count data
+resdata <- merge(as.data.frame(res), vsd_assay, by="row.names", sort=FALSE)
+rownames(resdata) <- resdata$Gene
+resdata <- resdata[-1]
+#Merge with annotation (genesymbol and geneType)
+resdata_annot <- merge(as.data.frame(resdata),as.data.frame(annotdata),by="row.names",all.x= TRUE)
+rownames(resdata_annot) <- resdata_annot$Row.names
+resdata_annot <- resdata_annot[-1]
+
+
+# Selection on padj <= 0.05
+res$padj <- ifelse(is.na(res$padj), 1, res$padj)
+sigGenes <- rownames(res[res$padj <= .05,])
+
+
+resdata_annot <- resdata_annot[resdata_annot$Gene %in% sigGenes,]
+
+mat = resdata_annot[ head(order(resdata_annot$padj),50), ] # select the top 50 genes with the lowest padj
+rownames(mat) <- paste(mat$Gene, mat$name, sep="_")
+mat$log2FoldChange <- NULL
+mat$lfcSE <- NULL
+mat$stat <- NULL
+mat$pvalue <- NULL
+mat$baseMean <- NULL
+mat$padj <- NULL
+mat$Gene <- NULL
+mat$name <- NULL
+mat$type <- NULL
+
+mat = mat - rowMeans(mat) # Subtract the row means from each value
+# Optional, but to make the plot nicer:
+df = as.data.frame(colData(vsd)[,c("Group")]) # Create a dataframe with a column of the conditions
+colnames(df) = "Group" # Rename the column header
+rownames(df) = colnames(mat) # add rownames
+# and plot the actual heatmap
+png(paste("genes_heatmap_",celline,"_",contrast,".png", sep=""), 1200, 1000, pointsize=20)
+pheatmap(mat, annotation_col=df)
+dev.off()
+
+
+
+plotUpDownSigGenes <- function(results, colNums, rld, title) {
+
+    # make the lists
+    upgenes <- rownames(head(results[ order( results$log2FoldChange ), ], n=20))
+    downgenes <- rownames(head(results[ order( -results$log2FoldChange ), ], n=20))
+
+    # this gives us the rows we want
+    rows <- match(upgenes, row.names(rld))
+    mat <- assay(rld)[rows,colNums]
+    mat <- mat - rowMeans(mat)
+
+    # the labels are hard coded at the moment :(
+    df <- as.data.frame(colData(rld)[c("labelA","labelB")])
+    pheatmap(mat, fontsize=5, annotation_col=df, main=paste(title,"top 20 up genes"))
+
+    # this gives us the rows we want
+    rows <- match(downgenes, row.names(rld))
+    mat <- assay(rld)[rows,colNums]
+    mat <- mat - rowMeans(mat)
+
+    df <- as.data.frame(colData(rld)[c("labelA","labelB")])
+    pheatmap(mat, fontsize=5, annotation_col=df, main=paste(title,"top 20 down genes"))
+}
+
+
+```
+# Kegg analysis
+```{r setup_go_kegg, echo=FALSE, message=FALSE, warning=FALSE}
+
+#Gene set analysis vs. gene set enrichment analysis
+
+#The two predominantly used enrichment methods are:
+
+#Overrepresentation analysis (ORA), testing whether a gene set contains disproportional many genes of significant expression change, based on the procedure outlined in the first section
+#Gene set enrichment analysis (GSEA), testing whether genes of a gene set accumulate at the top or bottom of the full gene vector ordered by direction and magnitude of expression change Subramanian et al., 2005
+
+###
+# res_HEK293a_h_vs_c_lfc
+# res_HEK293a_l_vs_c_lfc
+# res_HEK293a_g_vs_c_lfc
+# res_HEK293a_m_vs_c_lfc
+###
+
+######Set specific result (see table above) to res and process
+res <- res_HEK293a_h_vs_c_lfc
+
+
+library(gage)
+library(AnnotationHub)
+library(ensembldb)
+library(clusterProfiler)
+library(magrittr) # needs to be run every time you start R and want to use %>%
+library(dplyr)
+library(EnrichmentBrowser)
+
+search_kegg_organism(str = "mouse", by= "common_name")    # mmu 
+
+
+
+ah <- AnnotationHub()
+ahDb <- query(ah, pattern = c("mus musculus", "EnsDb", 	100))     
+relevant_idx <- which(base::grepl(pattern = 100, x = ahDb$title ))
+hsa_db <- ahDb[[relevant_idx]]
+rm(ahDb); rm(ah)
+
+# Get kegg pathways
+mmu_gs <- getGenesets(org = "mmu", db = "kegg", cache = FALSE, go.mode = "biomart") 
+# get GO annotation
+mmu_go <-getGenesets(org = "mmu", db = "go", cache = FALSE, go.mode = "GO.db") 
+
+
+resDE_GE <- as.data.frame(res)
+resDE_GE$gene_id <- rownames(res)
+resDE_GE  <- resDE_GE %>% 
+             mutate( abs_log2foldChange =  abs(resDE_GE$log2FoldChange)) %>%               
+             arrange(desc(abs_log2foldChange)) %>% 
+             dplyr::filter(padj <= 10^-2)
+
+resDE_GE <- resDE_GE[complete.cases(resDE_GE[ , 5:6]),]
+resDE_GE$entrez = mapIds(hsa_db,
+                      keys=as.character(resDE_GE$gene_id),
+                      column="ENTREZID",
+                      keytype="GENEID",
+                      multiVals="first")
+
+resDE_GE$symbol = mapIds(hsa_db,
+                      keys=as.character(resDE_GE$gene_id),
+                      column="SYMBOL",
+                      keytype="GENEID",
+                      multiVals="first")
+
+
+#Necessary for the GAGE run input variables
+foldchanges = resDE_GE$log2FoldChange
+names(foldchanges) = resDE_GE$entrez
+ 
+ write.csv(resDE_GE, file="DE_GE_KA_RIBO.csv")
+ 
+keggs_same <- gage(exprs = foldchanges, gsets = hsa_gs, ref = NULL, samp = NULL, same.dir = FALSE)
+print(' Pathways analysis result ')
+ print('Top 10 kegg pathway ')
+ print (head(keggs_same$greater,10))
+ head(keggs_same$greater[, 1:5], 4)
+ keggrespathways_up <-  data.frame(id=rownames(keggs_same$greater), qval=keggs_same$greater[,c('q.val')] ) %>% 
+        tbl_df() %>% 
+        dplyr::filter(row_number()<=10)
+        #%>% 
+        #.$id %>% 
+        #as.character()
+ print( keggrespathways_up )
+
+ print('Top 10 GO term')
+ go_same <- gage(exprs = foldchanges, gsets = hsa_go, ref = NULL, samp = NULL, same.dir = FALSE)
+ print (head(go_same$greater,10))
+ go_up <-  data.frame(id=rownames(go_same$greater), pval=go_same$greater[,c('p.val')], qval=go_same$greater[,c('q.val')]) %>% 
+        tbl_df() %>% 
+        dplyr::filter(row_number()<=10) 
+        
+print( go_up )
+```
+
+# fsgea analysis (GSEA for pathway and Gene Ontology)
+
+```{r}
+
+#Using fgsea toolkit
+
+#Get data from https://data.broadinstitute.org/gsea-msigdb/msigdb/release/7.1/
+#INFO on https://stephenturner.github.io/deseq-to-fgsea/
+# http://bioconductor.org/packages/release/bioc/html/fgsea.html
+# and https://www.gsea-msigdb.org/gsea/msigdb/collections.jsp#C2
+# https://www.biorxiv.org/content/10.1101/060012v1
+
+#Gene set analysis vs. gene set enrichment analysis
+#The two predominantly used enrichment methods are:
+
+#Overrepresentation analysis (ORA), testing whether a gene set contains disproportional many genes of significant expression change, based on the procedure outlined in the first section
+#Gene set enrichment analysis (GSEA), testing whether genes of a gene set accumulate at the top or bottom of the full gene vector ordered by direction and magnitude of expression change Subramanian et al., 2005
+
+###
+# res_HEK293a_h_vs_c_lfc
+# res_HEK293a_l_vs_c_lfc
+# res_HEK293a_g_vs_c_lfc
+# res_HEK293a_m_vs_c_lfc
+###
+
+###########SECTION TO BE ADJUSTED#######
+celline <- "mouse"
+contrast <- "highdose_control"
+######Set specific result (see table above) to res and process
+res <- res_HEK293a_h_vs_c_lfc
+###########SECTION TO BE ADJUSTED#######
+
+
+######Set specific result (see table above) to res and process
+
+
+library(gage)
+library(AnnotationHub)
+library(ensembldb)
+library(clusterProfiler)
+library(magrittr) # needs to be run every time you start R and want to use %>%
+library(dplyr)
+library(EnrichmentBrowser)
+library('R.utils')
+
+
+# Get extra ID information => Gene SYMBOL
+
+search_kegg_organism(str = "mouse", by= "common_name")    # mmu
+
+ah <- AnnotationHub()
+ahDb <- query(ah, pattern = c("mus musculus", "EnsDb", 	98))     
+relevant_idx <- which(base::grepl(pattern = 98, x = ahDb$title ))
+hsa_db <- ahDb[[relevant_idx]]
+rm(ahDb); rm(ah)
+
+
+resDE_GE <- as.data.frame(res)
+resDE_GE$gene_id <- rownames(res)
+#resDE_GE  <- resDE_GE %>% 
+#             mutate( abs_log2foldChange =  abs(resDE_GE$log2FoldChange)) %>%               
+#             arrange(desc(abs_log2foldChange)) %>% 
+#             dplyr::filter(padj <= 10^-2) #Only padjuted that are smaller than 10-2 are taken for the GSEA analysis
+
+ write.csv(resDE_GE, file="DE_GE_KA_RIBO.csv")
+
+#Add the gene symbol annotation
+resDE_GE$symbol = mapIds(hsa_db,
+                      keys=as.character(resDE_GE$gene_id),
+                      column="SYMBOL",
+                      keytype="GENEID",
+                      multiVals="first")
+
+# Only top 2000 expressed genes are taken into account (otherwise the GSEA ranking has too many elements with equal stats (because of low expression), messing up the ranking))
+res2 <- resDE_GE %>% 
+  top_n(2000, baseMean) %>%
+  dplyr::select(symbol, stat) %>%
+  na.omit() %>% 
+  distinct() %>% 
+  group_by(symbol) %>% 
+  summarize(stat=mean(stat))
+res2
+
+ranks <- deframe(res2)
+head(ranks, 20)
+
+#dir <- "/Users/gurb/Data/Work/Documents/BioLizard - ohmX.bio/ohmX.bio/projects/OHMX.bio/customers/Rejuvenate/"
+#setwd(dir)
+
+### PATHWAY ANALYSIS - KEGG
+fgseaRes <- fgsea(pathways=gmtPathways("msigdb_v7.1_files_to_download_locally/msigdb_v7.1_GMTs/c2.cp.kegg.v7.1.symbols.gmt"), ranks, nperm=1000) %>% 
+  as_tibble() %>% 
+  arrange(padj)
+
+fgseaResTidy <- fgseaRes %>%
+  as_tibble() %>%
+  dplyr::filter(padj <= 0.25) %>%
+  arrange(desc(abs(NES)))
+
+###COLLAPSED PATHWAYS
+#fgseaResT <- fgsea(pathways=gmtPathways("msigdb_v7.1_files_to_download_locally/msigdb_v7.1_GMTs/c2.cp.kegg.v7.1.symbols.gmt"), ranks, nperm=10000)
+#collapsedPathways <- collapsePathways(fgseaResT[order(pval)][padj < 0.25], 
+#                                      gmtPathways("msigdb_v7.1_files_to_download_locally/msigdb_v7.1_GMTs/c2.cp.kegg.v7.1.symbols.gmt"), ranks)
+#mainPathways <- fgseaResT[pathway %in% collapsedPathways$mainPathways][
+#                         order(-NES), pathway]
+
+
+#fgseaResTidySel <-fgseaResTidy %>% 
+#  dplyr::select(-leadingEdge, -ES, -nMoreExtreme) %>% 
+#  arrange(padj)
+
+fwrite(fgseaResTidy, file=paste("GSEA_PATHWAY_KEGG_", celline,"_", contrast, ".csv", sep="" ), sep=",", sep2=c("", " ", ""))
+
+
+### PATHWAY ANALYSIS
+fgseaRes <- fgsea(pathways=gmtPathways("msigdb_v7.1_files_to_download_locally/msigdb_v7.1_GMTs/c2.cp.v7.1.symbols.gmt"), ranks, nperm=1000) %>% 
+  as_tibble() %>% 
+  arrange(padj)
+  
+fgseaResTidy <- fgseaRes %>%
+  as_tibble() %>%
+  dplyr::filter(padj <= 0.25) %>%
+  arrange(desc(abs(NES)))
+
+
+#fgseaResTidySel <-fgseaResTidy %>% 
+#  dplyr::select(-leadingEdge, -ES, -nMoreExtreme) %>% 
+#  arrange(padj)
+
+fwrite(fgseaResTidy, file=paste("GSEA_PATHWAY_", celline,"_", contrast, ".csv", sep="" ), sep=",", sep2=c("", " ", ""))
+
+
+ #write.csv(fgseaResTidySel, file=paste("GSEA_PATHWAY_", celline,"_", contrast, ".csv", sep="" ))
+
+ 
+### GO ANALYSIS
+#BIOLOGICAL PROCESS
+fgseaRes <- fgsea(pathways=gmtPathways("msigdb_v7.1_files_to_download_locally/msigdb_v7.1_GMTs/c5.bp.v7.1.symbols.gmt"), ranks, nperm=1000) 
+
+fgseaResTidy <- fgseaRes %>%
+  as_tibble() %>%
+  dplyr::filter(padj <= 0.25) %>%
+  arrange(desc(abs(NES)))
+
+
+#fgseaResTidySel <-fgseaResTidy %>% 
+#  dplyr::select(-leadingEdge, -ES, -nMoreExtreme) %>% 
+#  arrange(padj)
+
+fwrite(fgseaResTidy, file=paste("GSEA_GO_BP_", celline,"_", contrast, ".csv", sep="" ), sep=",", sep2=c("", " ", ""))
+ #write.csv(fgseaResTidySel, file=paste("GSEA_GO_BP_", celline,"_", contrast, ".csv", sep="" ))
+
+ #MOLECULAR FUNCTION
+ fgseaRes <- fgsea(pathways=gmtPathways("msigdb_v7.1_files_to_download_locally/msigdb_v7.1_GMTs/c5.mf.v7.1.symbols.gmt"), ranks, nperm=1000) 
+
+fgseaResTidy <- fgseaRes %>%
+  as_tibble() %>%
+  dplyr::filter(padj <= 0.25) %>%
+  arrange(desc(abs(NES)))
+
+
+#fgseaResTidySel <-fgseaResTidy %>% 
+#  dplyr::select(-leadingEdge, -ES, -nMoreExtreme) %>% 
+#  arrange(pval)
+
+fwrite(fgseaResTidy, file=paste("GSEA_GO_MF_", celline,"_", contrast, ".csv", sep="" ), sep=",", sep2=c("", " ", ""))
+
+ #write.csv(fgseaResTidySel, file=paste("GSEA_GO_MF_", celline,"_", contrast, ".csv", sep="" ))
+ 
+#CELLULAR COMPONENT
+ fgseaRes <- fgsea(pathways=gmtPathways("msigdb_v7.1_files_to_download_locally/msigdb_v7.1_GMTs/c5.cc.v7.1.symbols.gmt"), ranks, nperm=1000) 
+
+fgseaResTidy <- fgseaRes %>%
+  as_tibble() %>%
+  dplyr::filter(padj <= 0.25) %>%
+  arrange(desc(abs(NES)))
+
+
+#fgseaResTidySel <-fgseaResTidy %>% 
+#  dplyr::select(-leadingEdge, -ES, -nMoreExtreme) %>% 
+#  arrange(padj)
+
+fwrite(fgseaResTidy, file=paste("GSEA_GO_CC_", celline,"_", contrast, ".csv", sep="" ), sep=",", sep2=c("", " ", ""))
+
+ #write.csv(fgseaResTidySel, file=paste("GSEA_GO_CC_", celline,"_", contrast, ".csv", sep="" ))
+ 
+ 
+ 
+#ggplot(fgseaResTidy, aes(reorder(pathway, NES), NES)) +
+#  geom_col(aes(fill=padj<0.05)) +
+#  coord_flip() +
+#  labs(x="Pathway", y="Normalized Enrichment Score",
+#  title="Hallmark pathways NES from GSEA") + 
+#  theme_minimal()
+
+
+```
+
+# WebGestalt  (ORA, Over-representation Analysis)
+
+```{r}
+
+library(WebGestaltR)
+library(AnnotationHub)
+library(magrittr) # needs to be run every time you start R and want to use %>%
+library(dplyr)
+
+dir <- "/Users/steven/Documents/OHMX/projects/OHMX20200050_biontech/full_run/DESeq/bioinformatics/GO/"
+setwd(dir)
+
+###
+# res_HEK293a_h_vs_c_lfc
+# res_HEK293a_l_vs_c_lfc
+# res_HEK293a_g_vs_c_lfc
+# res_HEK293a_m_vs_c_lfc
+###
+
+
+###########SECTION TO BE ADJUSTED#######
+celline <- "human"
+contrast <- "RIBO_lowvswt"
+######Set specific result (see table above) to res and process
+res <- res_RIBO_lowvswt
+###########SECTION TO BE ADJUSTED#######
+
+
+#Check available genesets
+listGeneSet("hsapiens")
+
+############################################
+#Get the diff_expression results in genelist
+############################################
+
+#Prepare Annotation hub
+ah <- AnnotationHub()
+ahDb <- query(ah, pattern = c("Homo sapiens", "EnsDb", 	98))     
+relevant_idx <- which(base::grepl(pattern = 98, x = ahDb$title ))
+hsa_db <- ahDb[[relevant_idx]]
+rm(ahDb); rm(ah)
+
+#Filter DE results based on padj and abs(lo2FoldChange)
+resDE_GE <- as.data.frame(res)
+resDE_GE$gene_id <- rownames(res)
+resDE_GE  <- resDE_GE %>% 
+             mutate( abs_log2foldChange =  abs(resDE_GE$log2FoldChange)) %>%               
+             arrange(desc(abs_log2foldChange)) %>% 
+             dplyr::filter(padj <= 0.05)
+
+#Fetch Entrez ID
+resDE_GE <- resDE_GE[complete.cases(resDE_GE[ , 5:6]),]
+resDE_GE$symbol = mapIds(hsa_db,
+                  keys=as.character(resDE_GE$gene_id),
+                  column="SYMBOL",
+                  keytype="GENEID",
+                  multiVals="first")
+
+resDE_symbol <- resDE_GE%>%
+            dplyr::select(symbol)
+resDE_gene_id <- resDE_GE%>%
+            dplyr::select(gene_id)
+
+GeneListSymbol <- paste("ORA_symbol_list_",contrast,".txt",sep="")
+GeneListGeneID <- paste("ORA_geneid_list_",contrast,".txt",sep="")
+GeneRefListSymbol <- paste(dir,"ORA_symbol_reflist_",contrast,".txt",sep="")
+GeneRefListGeneID <- paste(dir,"ORA_geneid_reflist_",contrast,".txt",sep="")
+  
+RankFileName <- paste("GSEA_symbol_",contrast,".rnk",sep="")
+
+write.table(resDE_symbol, file=GeneListSymbol, quote=FALSE, row.names=FALSE, col.names=FALSE)
+write.table(resDE_gene_id, file=GeneListGeneID, quote=FALSE, row.names=FALSE, col.names=FALSE)
+
+
+#Obtain the reference expression set
+resDE_GE <- as.data.frame(res)
+resDE_GE$gene_id <- rownames(res)
+
+#Fetch Entrez ID
+resDE_GE <- resDE_GE[complete.cases(resDE_GE[ , 5:6]),]
+resDE_GE$symbol = mapIds(hsa_db,
+                  keys=as.character(resDE_GE$gene_id),
+                  column="SYMBOL",
+                  keytype="GENEID",
+                  multiVals="first")
+resDE_symbol <- resDE_GE%>%
+            dplyr::select(symbol)
+resDE_gene_id <- resDE_GE%>%
+            dplyr::select(gene_id)
+
+write.table(resDE_symbol, file=GeneRefListSymbol, quote=FALSE, row.names=FALSE, col.names=FALSE)
+write.table(resDE_gene_id, file=GeneRefListGeneID, quote=FALSE, row.names=FALSE, col.names=FALSE)
+
+#Use View(listGeneSet()) to check on the different functional categories
+#pathway_KEGG
+#geneontology_Molecular_Function_noRedundant
+#geneontology_Biological_Process_noRedundant
+
+#####
+#ORA#
+#####
+
+enrichResult <- WebGestaltR(enrichMethod="ORA", organism="hsapiens",
+enrichDatabase="pathway_KEGG", interestGeneFile=GeneListSymbol,
+interestGeneType="genesymbol", referenceGeneFile=GeneRefListSymbol,
+referenceGeneType="genesymbol", isOutput=TRUE, sigMethod="top", minNum=5, reportNum = 40, outputDirectory=dir, projectName=paste("ORA_",contrast,"_pathway_kegg",sep=""))
+
+enrichResult <- WebGestaltR(enrichMethod="ORA", organism="hsapiens",
+enrichDatabase="geneontology_Molecular_Function_noRedundant", interestGeneFile=GeneListSymbol,
+interestGeneType="genesymbol", referenceGeneFile=GeneRefListSymbol,
+referenceGeneType="genesymbol", isOutput=TRUE, sigMethod="top", minNum=5, reportNum = 40, outputDirectory=dir, projectName=paste("ORA_",contrast,"_GO_MF",sep=""))
+
+enrichResult <- WebGestaltR(enrichMethod="ORA", organism="hsapiens",
+enrichDatabase="geneontology_Biological_Process_noRedundant", interestGeneFile=GeneListSymbol,
+interestGeneType="genesymbol", referenceGeneFile=GeneRefListSymbol,
+referenceGeneType="genesymbol", isOutput=TRUE, sigMethod="top", minNum=5, reportNum = 40, outputDirectory=dir, projectName=paste("ORA_",contrast,"_GO_BP",sep=""))
+
+enrichResult <- WebGestaltR(enrichMethod="ORA", organism="hsapiens",
+enrichDatabase="geneontology_Cellular_Component_noRedundant", interestGeneFile=GeneListSymbol,
+interestGeneType="genesymbol", referenceGeneFile=GeneRefListSymbol,
+referenceGeneType="genesymbol", isOutput=TRUE, sigMethod="top", minNum=5, reportNum = 40, outputDirectory=dir, projectName=paste("ORA_",contrast,"_GO_CP",sep=""))
+
+```
+
+# WebGestalt  (GSEA, Gene Set Enrichment Analysis)
+
+```{r}
+###
+# res_HEK293a_h_vs_c_lfc
+# res_HEK293a_h_vs_m_lfc
+# res_HEK293a_h_vs_g_lfc
+###
+###########SECTION TO BE ADJUSTED#######
+#For RNA
+#dds <- dds_full[ , dds_full$Group  %in% c("High","WT") ]  ##Changed dds_HEK293a -> dss_full but only in front, not inside brackets
+#For RIBO in this case, selected samples
+dds <- dds_full_select[ , dds_full_select$Group  %in% c("Low","WT") ] 
+dds <- dds[ , dds$Protocol == "RIBO" ]  ##SV: added this line to select treatment
+celline <- "human"
+contrast <- "RIBO_lowvswt"
+######Set specific result (see table above) to res and process
+#Adapt SV: select full res here, so that stat is present (stat is not present in shrinke res)
+res <- full_res_ribo_lowvswt
+###########SECTION TO BE ADJUSTED#######
+
+
+
+library(WebGestaltR)
+library(AnnotationHub)
+library(magrittr) # needs to be run every time you start R and want to use %>%
+library(dplyr)
+
+dir <- "/Users/steven/Documents/OHMX/projects/OHMX20200050_biontech/full_run/DESeq/bioinformatics/GO/"
+setwd(dir)
+
+#The count matrix
+counts_dds <-as.data.frame(counts(dds, normalized=TRUE))
+
+#Prepare Annotation hub
+ah <- AnnotationHub()
+ahDb <- query(ah, pattern = c("homo sapiens", "EnsDb", 	98))     
+relevant_idx <- which(base::grepl(pattern = 98, x = ahDb$title ))
+hsa_db <- ahDb[[relevant_idx]]
+rm(ahDb); rm(ah)
+
+#Obtain the reference expression set
+resDE_GE <- as.data.frame(res)
+resDE_GE$gene_id <- rownames(res)
+counts_dds$gene_id <-rownames(counts_dds)
+
+#Fetch Entrez ID
+resDE_GE <- resDE_GE[complete.cases(resDE_GE[ , 5:6]),]
+resDE_GE$symbol = mapIds(hsa_db,
+                  keys=as.character(resDE_GE$gene_id),
+                  column="SYMBOL",
+                  keytype="GENEID",
+                  multiVals="first")
+
+counts_dds$symbol = mapIds(hsa_db,
+                  keys=as.character(counts_dds$gene_id),
+                  column="SYMBOL",
+                  keytype="GENEID",
+                  multiVals="first")
+counts_dds_GSEA <- cbind(counts_dds$symbol,counts_dds$gene_id,counts_dds) ##SV: changed 15 to 6 here, 6 samples considered
+colnames(counts_dds_GSEA)[colnames(counts_dds_GSEA) == "counts_dds$symbol"] <- "name"
+colnames(counts_dds_GSEA)[colnames(counts_dds_GSEA) == "counts_dds$gene_id"] <- "description"
+
+CountsFileName <- paste(dir, "GSEA_symbol_",contrast,".txt",sep="")
+write.table(counts_dds_GSEA, file=CountsFileName, sep = "\t", quote=FALSE, row.names=FALSE, col.names=TRUE)
+
+
+# Only top 1000 expressed genes are taken into account (otherwise the GSEA ranking has too many elements with equal stats (because of low expression), messing up the ranking))
+res2 <- resDE_GE %>% 
+  #top_n(1000, baseMean) %>%
+  dplyr::select(symbol, stat) %>%
+  na.omit() %>% 
+  distinct() %>% 
+  group_by(symbol) %>% 
+  #summarize(stat=mean(stat))  %>%
+  arrange(desc(stat))
+res2
+
+RankFileName <- paste(dir,"GSEA_symbol_",contrast,".rnk",sep="")
+write.table(res2, file=RankFileName, sep = "\t", quote=FALSE, row.names=FALSE, col.names=FALSE)
+
+######
+#GSEA#
+######
+
+###Pathway
+
+#KEGG
+enrichResult <- WebGestaltR(enrichMethod="GSEA", organism="mmusculus",
+  enrichDatabase="pathway_KEGG", interestGeneFile=RankFileName, dagColor = "continuous",
+  interestGeneType="genesymbol", sigMethod="fdr", fdrThr=0.1, minNum=5, reportNum = 40,
+  outputDirectory=dir, projectName = paste("GSEA_",contrast,"_Pathway_KEGG",sep=""))
+
+#WikiPathway
+enrichResult <- WebGestaltR(enrichMethod="GSEA", organism="mmusculus",
+  enrichDatabase="pathway_Wikipathway", interestGeneFile=RankFileName, dagColor = "continuous",
+  interestGeneType="genesymbol", sigMethod="fdr", fdrThr=0.1, minNum=5, reportNum = 40,
+  outputDirectory=dir, projectName = paste("GSEA_",contrast,"_Pathway_Wiki",sep=""))
+
+#Panther
+enrichResult <- WebGestaltR(enrichMethod="GSEA", organism="mmusculus",
+  enrichDatabase="pathway_Panther", interestGeneFile=RankFileName, dagColor = "continuous",
+  interestGeneType="genesymbol", sigMethod="fdr", fdrThr=0.1, minNum=5, reportNum = 40,
+  outputDirectory=dir, projectName = paste("GSEA_",contrast,"_Pathway_Panther",sep=""))
+
+#Reactome
+enrichResult <- WebGestaltR(enrichMethod="GSEA", organism="mmusculus",
+  enrichDatabase="pathway_Reactome", interestGeneFile=RankFileName, dagColor = "continuous",
+  interestGeneType="genesymbol", sigMethod="fdr", fdrThr=0.1, minNum=5, reportNum = 40,
+  outputDirectory=dir, projectName = paste("GSEA_",contrast,"_Pathway_Reactome",sep=""))
+
+
+###GO
+
+#Molecular Function
+enrichResult <- WebGestaltR(enrichMethod="GSEA", organism="hsapiens",
+  enrichDatabase="geneontology_Molecular_Function_noRedundant", interestGeneFile=RankFileName, dagColor = "continuous",
+  interestGeneType="genesymbol", sigMethod="fdr", fdrThr=0.1, minNum=5, reportNum = 40,
+  outputDirectory=dir, projectName = paste("GSEA_",contrast,"_GO_MF",sep=""))
+
+#Biological process
+enrichResult <- WebGestaltR(enrichMethod="GSEA", organism="hsapiens",
+  enrichDatabase="geneontology_Biological_Process_noRedundant", interestGeneFile=RankFileName, dagColor = "continuous",
+  interestGeneType="genesymbol", sigMethod="fdr", fdrThr=0.1, minNum=5, reportNum = 40,
+  outputDirectory=dir, projectName = paste("GSEA_",contrast,"_GO_BP",sep=""))
+
+#Cellular component
+enrichResult <- WebGestaltR(enrichMethod="GSEA", organism="hsapiens",
+  enrichDatabase="geneontology_Cellular_Component_noRedundant", interestGeneFile=RankFileName, dagColor = "continuous",
+  interestGeneType="genesymbol", sigMethod="fdr", fdrThr=0.1, minNum=5, reportNum = 40,
+  outputDirectory=dir, projectName = paste("GSEA_",contrast,"_GO_CC",sep=""))
+
+```
+
+
+#Translation Efficiency
+
+
+```{r}
+
+#Set translation efficiency design: include the protocol as factor + interaction
+dds_select <- dds_full_select
+design(dds_select) <- ~ Group + Group:Protocol
+
+#Set RNA as the reference level
+dds_select$Protocol <- relevel(dds_select$Protocol, ref = "RNA")
+
+#Run the analysis
+dds_select <- DESeq( dds_select )
+
+#Get the results
+res_select <- results( dds_select )
+summary( res_select )
+
+#Check
+resultsNames(dds_select)
+
+#Using ashr
+#low_vs_wt
+res_select <- results( dds_select, independentFiltering=TRUE, contrast=list("GroupLow.ProtocolRIBO","GroupWT.ProtocolRIBO"), alpha=0.05) #Last level is the base level
+summary(res_select)
+res_lfc_select <- lfcShrink(dds_select, contrast=list("GroupLow.ProtocolRIBO","GroupWT.ProtocolRIBO"), type="ashr", lfcThreshold=0, res=res_select)
+summary(res_lfc_select)
+res_TE_lowvswt <- res_lfc_select
+
+#high_vs_wt
+res_select <- results( dds_select, independentFiltering=TRUE, contrast=list("GroupHigh.ProtocolRIBO","GroupWT.ProtocolRIBO"), alpha=0.05) #Last level is the base level
+summary(res_select)
+res_lfc_select <- lfcShrink(dds_select, contrast=list("GroupHigh.ProtocolRIBO","GroupWT.ProtocolRIBO"), type="ashr", lfcThreshold=0, res=res_select)
+summary(res_lfc_select)
+res_TE_highvswt <- res_lfc_select
+
+
+###CONSTRUCT THE SUMMARY TABLE OF ALL PADJ <= 0.05
+library('dplyr')
+library('tibble')
+
+contrast <- "TE_lowvswt"
+res <- res_TE_lowvswt
+
+FC <- paste("Log2FC_",contrast,sep="")
+p  <- paste("padj_",contrast,sep="")
+assign(paste("res_",contrast,sep=""), rownames_to_column(as.data.frame(res),"gene") %>% 
+  dplyr::select(gene, log2FoldChange, padj) %>%
+  dplyr::rename(!!FC := log2FoldChange, !!p := padj))
+
+contrast <- "TE_highvswt"
+res <- res_TE_highvswt
+
+FC <- paste("Log2FC_",contrast,sep="")
+p  <- paste("padj_",contrast,sep="")
+assign(paste("res_",contrast,sep=""), rownames_to_column(as.data.frame(res),"gene") %>% 
+  dplyr::select(gene, log2FoldChange, padj) %>%
+  dplyr::rename(!!FC := log2FoldChange, !!p := padj))
+  
+overview_res <- Reduce(function(x,y) merge(x,y,by="gene",all=TRUE) ,list(res_TE_lowvswt,res_TE_highvswt))
+rownames(overview_res) <- overview_res$gene
+
+# Add annotation to list
+## Get annotation data
+annotdata <- read.table("bioinformatics/DataTables/ensMart_hsa_104.txt",sep = '\t', header=TRUE)
+colnames(annotdata) <- c('ensg','name','type','description')
+#Check for non-unique ensg and remove duplicates if necessary
+n_occur <- data.frame(table(annotdata$ensg))
+n_occur[n_occur$Freq > 1,]
+annotdata[annotdata$ensg %in% n_occur$Var1[n_occur$Freq > 1],]
+# Manually erase from annotation file where necessary
+
+#rownames(annotdata) <- annotdata$ensg
+#annotdata <- annotdata[-1]
+head(annotdata[annotdata$type == "protein_coding",])
+
+## Merge resdata with normalized count data
+#resdata <- merge(as.data.frame(overview_res), as.data.frame(counts(dds_select, normalized=TRUE)), by="row.names", sort=FALSE)
+#names(resdata)[1] <- "Gene"
+#head(resdata)
+#rownames(resdata) <- resdata$Gene
+#resdata <- resdata[-1]
+
+#Merge resdata/counts and annotation
+resdata_annot <- merge(as.data.frame(annotdata),as.data.frame(overview_res),by.x="ensg", by.y="gene",all.y= TRUE)
+#rownames(resdata_annot) <- resdata_annot$Row.names
+#resdata_annot <- resdata_annot[-1]
+
+## Order by adjusted p-value
+#resdata_annot <- resdata_annot[order(resdata_annot$padj), ]
+## Order by abs(log2foldchange)
+#resdata_annot <- resdata_annot[order(-abs(resdata_annot$log2FoldChange)), ]
+
+#Replcace NA's
+#resdata_annot[is.na(resdata_annot)] <- 0
+
+#Reorder columns
+resdata_annot <- resdata_annot %>% dplyr::select(-description,description)
+
+## Write results
+write.table(resdata_annot, file="bioinformatics/TranslationEfficiency/diffexpr-results_RIBORNA_TE_2.tsv", sep="\t")
+
+```
+
+Show genes with significant increase in translational efficiency:
+
+```{r}
+resR_increase_TE <- resdata_annot[ which( resdata_annot$log2FoldChange > 0 & resdata_annot$padj < .1 ), ]
+resR_increase_TE <- resR_increase_TE[order(resR_increase_TE$padj), ]
+head(as.data.frame(resR_increase_TE))
+View (resR_increase_TE)
+write.table(resR_increase_TE, file="bioinformatics/TranslationEfficiency/diffexpr-results_RIBORNA_TE_increase.tsv", sep="\t")
+```
+
+Show genes with significant decrease in translational efficiency:
+
+```{r}
+resR_decrease_TE <- resdata_annot[ which( resdata_annot$log2FoldChange < 0 & resdata_annot$padj < .1 ), ] 
+resR_decrease_TE <- resR_decrease_TE[ order(resR_decrease_TE$padj), ] 
+head(as.data.frame(resR_decrease_TE))
+View(resR_decrease_TE)
+write.table(resR_decrease_TE, file="bioinformatics/TranslationEfficiency/diffexpr-results_RIBORNA_TE_decrease.tsv", sep="\t")
+```
+
+Plot an example
+
+```{r}
+
+library(stringr)
+
+as_tibble( colData(dds_select) ) %>%
+   mutate( ncount = counts( dds_select, normalized=TRUE )[ "ENSG_custom1", ] ) %>%
+   dplyr::select( Group, Protocol, ncount ) %>%
+   tidyr::spread( Protocol, ncount ) 
+
+as_tibble( colData(dds_select) ) %>%
+   mutate( ncount = counts( dds_select, normalized=TRUE )[ "ENSG_custom1", ] ) %>%
+   dplyr::select( Group, Protocol, ncount )%>%
+   tidyr::spread( Protocol, ncount )  %>%
+ggplot +
+  ggtitle("ENSG_custom1") +
+   geom_point(aes( 
+      x = RNA, 
+      y = log2( RIBO / RNA ), 
+      col=Group ) ) +
+  theme(plot.title = element_text(hjust = 0.5))
+
+as_tibble( colData(dds_select) ) %>%
+   mutate( ncount = counts( dds_select, normalized=TRUE )[ "ENSG_custom1", ] ) %>%
+   dplyr::mutate(X, Sample = str_extract(X, "^[^.]+")) %>%
+   dplyr::select( Group, Sample, Protocol, ncount )%>%
+   tidyr::spread( Protocol, ncount )  %>%
+ggplot +
+  ggtitle("ENSG_custom1") +
+   geom_point(aes( 
+      x = RNA, 
+      y = log2( RIBO / RNA ), 
+      col=Group ) ) +
+  theme(plot.title = element_text(hjust = 0.5))
+
+ggsave("bioinformatics/TranslationEfficiency/ENSG_custom1_TE.png")
+
+```
+
+Visualize a given gene with ggplot2:
+
+```{r}
+data.frame(
+   colData(dds_select),
+   ncount = counts( dds_select, normalized=TRUE )["ENSG_custom1",] ) %>%
+ggplot +
+  ggtitle("ENSG_custom1") +
+   geom_point(aes(
+      x = SampleID,
+      y = log2(ncount),
+      col = Group,
+      shape = Protocol ) ) +
+  theme(plot.title = element_text(hjust = 0.5))
+
+ggsave("bioinformatics/TranslationEfficiency/ENSG_custom1_RIBO_RNA.png")
+```
