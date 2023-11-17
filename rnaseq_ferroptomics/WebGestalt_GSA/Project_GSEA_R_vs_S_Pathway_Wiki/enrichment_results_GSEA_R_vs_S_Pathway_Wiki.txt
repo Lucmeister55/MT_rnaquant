@@ -1,0 +1,2 @@
+geneSet	description	link	enrichmentScore	normalizedEnrichmentScore	pValue	FDR	size	plotPath	leadingEdgeNum	leadingEdgeId	userId
+WP200	Complement Activation, Classical Pathway	http://www.wikipathways.org/wpi/PathwayWidget.php?id=WP200&label[]=C3&label[]=C7&colors=%23CDDDEA,%234682B4	0.9966041142714381	1.2965323221891432	0.01839826837835685	0.04046858359957402	5	./Project_GSEA_R_vs_S_Pathway_Wiki_GSEA/WP200.png	2	109828;12266	C3;C7

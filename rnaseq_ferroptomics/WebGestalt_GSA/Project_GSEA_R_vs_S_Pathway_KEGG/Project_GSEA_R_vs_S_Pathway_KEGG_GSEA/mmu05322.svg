@@ -1,0 +1,110 @@
+<?xml version='1.0' encoding='UTF-8' ?>
+<svg xmlns='http://www.w3.org/2000/svg' xmlns:xlink='http://www.w3.org/1999/xlink' class='svglite' width='504.00pt' height='504.00pt' viewBox='0 0 504.00 504.00'>
+<defs>
+  <style type='text/css'><![CDATA[
+    .svglite line, .svglite polyline, .svglite polygon, .svglite path, .svglite rect, .svglite circle {
+      fill: none;
+      stroke: #000000;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      stroke-miterlimit: 10.00;
+    }
+    .svglite text {
+      white-space: pre;
+    }
+  ]]></style>
+</defs>
+<rect width='100%' height='100%' style='stroke: none; fill: none;'/>
+<defs>
+  <clipPath id='cpMC4wMHw1MDQuMDB8MC4wMHw1MDQuMDA='>
+    <rect x='0.00' y='0.00' width='504.00' height='504.00' />
+  </clipPath>
+</defs>
+<g clip-path='url(#cpMC4wMHw1MDQuMDB8MC4wMHw1MDQuMDA=)'>
+</g>
+<defs>
+  <clipPath id='cpODYuNDB8NDc1LjIwfDg2LjQwfDI1Mi4wMA=='>
+    <rect x='86.40' y='86.40' width='388.80' height='165.60' />
+  </clipPath>
+</defs>
+<g clip-path='url(#cpODYuNDB8NDc1LjIwfDg2LjQwfDI1Mi4wMA==)'>
+<polyline points='100.80,125.17 123.30,92.53 145.80,105.35 168.30,118.18 190.80,131.00 213.30,143.82 235.80,156.64 258.30,169.46 280.80,182.28 303.30,195.10 325.80,194.79 348.30,194.60 370.80,207.42 393.30,220.24 415.80,220.22 438.30,233.05 460.80,245.87 ' style='stroke-width: 2.25;' />
+</g>
+<g clip-path='url(#cpMC4wMHw1MDQuMDB8MC4wMHw1MDQuMDA=)'>
+<line x1='86.40' y1='245.87' x2='86.40' y2='92.01' style='stroke-width: 0.75;' />
+<line x1='86.40' y1='245.87' x2='79.20' y2='245.87' style='stroke-width: 0.75;' />
+<line x1='86.40' y1='215.10' x2='79.20' y2='215.10' style='stroke-width: 0.75;' />
+<line x1='86.40' y1='184.32' x2='79.20' y2='184.32' style='stroke-width: 0.75;' />
+<line x1='86.40' y1='153.55' x2='79.20' y2='153.55' style='stroke-width: 0.75;' />
+<line x1='86.40' y1='122.78' x2='79.20' y2='122.78' style='stroke-width: 0.75;' />
+<line x1='86.40' y1='92.01' x2='79.20' y2='92.01' style='stroke-width: 0.75;' />
+<text transform='translate(69.12,245.87) rotate(-90)' text-anchor='middle' style='font-size: 7.20px; font-family: "Arial";' textLength='9.99px' lengthAdjust='spacingAndGlyphs'>0.0</text>
+<text transform='translate(69.12,215.10) rotate(-90)' text-anchor='middle' style='font-size: 7.20px; font-family: "Arial";' textLength='9.99px' lengthAdjust='spacingAndGlyphs'>0.2</text>
+<text transform='translate(69.12,184.32) rotate(-90)' text-anchor='middle' style='font-size: 7.20px; font-family: "Arial";' textLength='9.99px' lengthAdjust='spacingAndGlyphs'>0.4</text>
+<text transform='translate(69.12,153.55) rotate(-90)' text-anchor='middle' style='font-size: 7.20px; font-family: "Arial";' textLength='9.99px' lengthAdjust='spacingAndGlyphs'>0.6</text>
+<text transform='translate(69.12,122.78) rotate(-90)' text-anchor='middle' style='font-size: 7.20px; font-family: "Arial";' textLength='9.99px' lengthAdjust='spacingAndGlyphs'>0.8</text>
+<text transform='translate(69.12,92.01) rotate(-90)' text-anchor='middle' style='font-size: 7.20px; font-family: "Arial";' textLength='9.99px' lengthAdjust='spacingAndGlyphs'>1.0</text>
+<polygon points='86.40,252.00 475.20,252.00 475.20,86.40 86.40,86.40 ' style='stroke-width: 1.50;' />
+</g>
+<defs>
+  <clipPath id='cpMC4wMHw1MDQuMDB8MC4wMHwyNTIuMDA='>
+    <rect x='0.00' y='0.00' width='504.00' height='252.00' />
+  </clipPath>
+</defs>
+<g clip-path='url(#cpMC4wMHw1MDQuMDB8MC4wMHwyNTIuMDA=)'>
+<text x='280.80' y='49.64' text-anchor='middle' style='font-size: 18.00px; font-weight: bold; font-family: "Arial";' textLength='413.09px' lengthAdjust='spacingAndGlyphs'>Enrichment plot: Systemic lupus erythematosus</text>
+<text transform='translate(40.32,169.20) rotate(-90)' text-anchor='middle' style='font-size: 9.60px; font-family: "Arial";' textLength='76.23px' lengthAdjust='spacingAndGlyphs'>Enrichment Score</text>
+</g>
+<g clip-path='url(#cpODYuNDB8NDc1LjIwfDg2LjQwfDI1Mi4wMA==)'>
+<line x1='123.30' y1='252.00' x2='123.30' y2='86.40' style='stroke-width: 1.50; stroke-dasharray: 2.00,6.00;' />
+</g>
+<defs>
+  <clipPath id='cpODYuNDB8NDc1LjIwfDI1Mi4wMHwzMjcuNjA='>
+    <rect x='86.40' y='252.00' width='388.80' height='75.60' />
+  </clipPath>
+</defs>
+<g clip-path='url(#cpODYuNDB8NDc1LjIwfDI1Mi4wMHwzMjcuNjA=)'>
+<line x1='100.80' y1='324.80' x2='100.80' y2='254.80' style='stroke-width: 1.50;' />
+<line x1='123.30' y1='324.80' x2='123.30' y2='254.80' style='stroke-width: 1.50;' />
+<line x1='325.80' y1='324.80' x2='325.80' y2='254.80' style='stroke-width: 1.50;' />
+<line x1='348.30' y1='324.80' x2='348.30' y2='254.80' style='stroke-width: 1.50;' />
+<line x1='415.80' y1='324.80' x2='415.80' y2='254.80' style='stroke-width: 1.50;' />
+</g>
+<g clip-path='url(#cpMC4wMHw1MDQuMDB8MC4wMHw1MDQuMDA=)'>
+<line x1='190.80' y1='417.60' x2='415.80' y2='417.60' style='stroke-width: 0.75;' />
+<line x1='190.80' y1='417.60' x2='190.80' y2='424.80' style='stroke-width: 0.75;' />
+<line x1='303.30' y1='417.60' x2='303.30' y2='424.80' style='stroke-width: 0.75;' />
+<line x1='415.80' y1='417.60' x2='415.80' y2='424.80' style='stroke-width: 0.75;' />
+<text x='190.80' y='443.52' text-anchor='middle' style='font-size: 7.20px; font-family: "Arial";' textLength='4.00px' lengthAdjust='spacingAndGlyphs'>5</text>
+<text x='303.30' y='443.52' text-anchor='middle' style='font-size: 7.20px; font-family: "Arial";' textLength='7.99px' lengthAdjust='spacingAndGlyphs'>10</text>
+<text x='415.80' y='443.52' text-anchor='middle' style='font-size: 7.20px; font-family: "Arial";' textLength='7.99px' lengthAdjust='spacingAndGlyphs'>15</text>
+<line x1='86.40' y1='414.27' x2='86.40' y2='340.94' style='stroke-width: 0.75;' />
+<line x1='86.40' y1='414.27' x2='79.20' y2='414.27' style='stroke-width: 0.75;' />
+<line x1='86.40' y1='395.94' x2='79.20' y2='395.94' style='stroke-width: 0.75;' />
+<line x1='86.40' y1='377.60' x2='79.20' y2='377.60' style='stroke-width: 0.75;' />
+<line x1='86.40' y1='359.27' x2='79.20' y2='359.27' style='stroke-width: 0.75;' />
+<line x1='86.40' y1='340.94' x2='79.20' y2='340.94' style='stroke-width: 0.75;' />
+<text transform='translate(69.12,414.27) rotate(-90)' text-anchor='middle' style='font-size: 7.20px; font-family: "Arial";' textLength='4.00px' lengthAdjust='spacingAndGlyphs'>0</text>
+<text transform='translate(69.12,395.94) rotate(-90)' text-anchor='middle' style='font-size: 7.20px; font-family: "Arial";' textLength='15.98px' lengthAdjust='spacingAndGlyphs'>1000</text>
+<text transform='translate(69.12,359.27) rotate(-90)' text-anchor='middle' style='font-size: 7.20px; font-family: "Arial";' textLength='15.98px' lengthAdjust='spacingAndGlyphs'>3000</text>
+<polygon points='86.40,417.60 475.20,417.60 475.20,327.60 86.40,327.60 ' style='stroke-width: 1.50;' />
+</g>
+<defs>
+  <clipPath id='cpMC4wMHw1MDQuMDB8MzI3LjYwfDUwNC4wMA=='>
+    <rect x='0.00' y='327.60' width='504.00' height='176.40' />
+  </clipPath>
+</defs>
+<g clip-path='url(#cpMC4wMHw1MDQuMDB8MzI3LjYwfDUwNC4wMA==)'>
+<text x='280.80' y='472.32' text-anchor='middle' style='font-size: 9.60px; font-family: "Arial";' textLength='106.10px' lengthAdjust='spacingAndGlyphs'>Rank in Ordered Dataset</text>
+<text transform='translate(40.32,372.60) rotate(-90)' text-anchor='middle' style='font-size: 9.60px; font-family: "Arial";' textLength='76.23px' lengthAdjust='spacingAndGlyphs'>Ranked list metric</text>
+</g>
+<defs>
+  <clipPath id='cpODYuNDB8NDc1LjIwfDMyNy42MHw0MTcuNjA='>
+    <rect x='86.40' y='327.60' width='388.80' height='90.00' />
+  </clipPath>
+</defs>
+<g clip-path='url(#cpODYuNDB8NDc1LjIwfDMyNy42MHw0MTcuNjA=)'>
+<polygon points='100.80,414.27 100.80,330.93 123.30,391.74 145.80,399.87 168.30,401.37 190.80,404.97 213.30,409.80 235.80,411.29 258.30,411.95 280.80,412.96 303.30,414.00 325.80,414.05 348.30,414.13 370.80,414.24 393.30,414.25 415.80,414.26 438.30,414.26 460.80,414.27 460.80,414.27 ' style='stroke-width: 1.50; fill: #000000;' />
+<line x1='123.30' y1='417.60' x2='123.30' y2='327.60' style='stroke-width: 1.50; stroke-dasharray: 2.00,6.00;' />
+</g>
+</svg>

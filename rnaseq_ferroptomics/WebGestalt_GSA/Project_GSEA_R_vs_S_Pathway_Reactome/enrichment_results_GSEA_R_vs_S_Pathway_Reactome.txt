@@ -1,0 +1,5 @@
+geneSet	description	link	enrichmentScore	normalizedEnrichmentScore	pValue	FDR	size	plotPath	leadingEdgeNum	leadingEdgeId	userId
+R-MMU-168249	Innate Immune System	http://reactome.org/PathwayBrowser/#/R-MMU-168249	0.9963310231408911	1.3082989827079776	0.010559662079662448	0.011223180970149255	6	./Project_GSEA_R_vs_S_Pathway_Reactome_GSEA/R_MMU_168249.png	2	109828;12266	C3;C7
+R-MMU-168256	Immune System	http://reactome.org/PathwayBrowser/#/R-MMU-168256	0.9963310231408911	1.3082989827079776	0.010559662079662448	0.011223180970149255	6	./Project_GSEA_R_vs_S_Pathway_Reactome_GSEA/R_MMU_168256.png	2	109828;12266	C3;C7
+R-MMU-166658	Complement cascade	http://reactome.org/PathwayBrowser/#/R-MMU-166658	0.9963310231408911	1.3082989827079776	0.010559662079662448	0.011223180970149255	6	./Project_GSEA_R_vs_S_Pathway_Reactome_GSEA/R_MMU_166658.png	2	109828;12266	C3;C7
+R-MMU-977606	Regulation of Complement cascade	http://reactome.org/PathwayBrowser/#/R-MMU-977606	0.9963310231408911	1.3082989827079776	0.010559662079662448	0.011223180970149255	6	./Project_GSEA_R_vs_S_Pathway_Reactome_GSEA/R_MMU_977606.png	2	109828;12266	C3;C7
