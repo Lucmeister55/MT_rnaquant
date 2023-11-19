@@ -9,6 +9,11 @@ library(rje)
 library(ashr)
 library(ggplot2)
 library(pcaExplorer)
+library(tibble)
+library(RColorBrewer)
+library(AnnotationDbi)
+library(org.Hs.eg.db)
+library(gplots)
 ```
 
 ## 1. Read count table
@@ -30,9 +35,7 @@ print(dim(countdata_fc))
 print(colnames(countdata_fc))
 ```
 
-## 2. Create sample table
-
-Parse column names of count table to make sample table
+## 2. Read sample table
 
 ```{r}
 sampleTable_exp <- read_csv("rnaseq_ferroptomics/MT_ferroptosis_metadata.csv") %>%
@@ -59,7 +62,7 @@ dds$Group <- relevel(dds$Group, "R")
 dds <- estimateSizeFactors(dds)
 ```
 
-#Sample distances
+# Sample distances
 
 Calculate a *distance matrix*, quantifying dissimilarity of the samples
 
@@ -104,11 +107,9 @@ pheatmap(distmat_vst,cluster_rows=FALSE, cluster_cols=FALSE)
 dev.off()
 ```
 
-#MATRIX OF SCATTERPLOTS
+# MATRIX OF SCATTERPLOTS
 
 ```{r}
-
-library("RColorBrewer")
 
 # panel.smooth function is built in.
 # panel.cor puts correlation in upper panels, size proportional to correlation
@@ -136,7 +137,7 @@ panel.cor <- function(x, y, digits=3, prefix="", cex.cor, ...)
 
 ```
 
-#PCA plot
+# PCA plot
 
 ```{r}
 rld <- vst(dds)
@@ -149,14 +150,14 @@ dev.off()
 ```
 
 
-# Simple two-group comparison RIBO/RNA (2 * 2 conditions primed-nonprimed & potent-subpotent)
+# Two-group comparison
 
-For our setup, we want to compare Low and High against the WT (2 times a 2-group comparison)
+For our setup, we want to compare R and S
 
-## 1. Subset the full data to these samples
+## 1. Size factors and metadata
 
 ```{r}
-# Calculate sizeFactors (should be 1, already done, see ELife manuscript)
+# Calculate sizeFactors (should be 1)
 sizeFactors(dds)
 
 colData(dds)
@@ -164,11 +165,9 @@ colData(dds)
 
 ## 2. Set design
 
-Comparing two types of samples, wich differ by a single covariate (here: `Condition`), ("a two-group comparison") is  straight-forward.
+Comparing two types of samples, wich differ by a single covariate (here: `Group`), ("a two-group comparison") is  straight-forward.
 
 Set the comparison type, i.e. indicate which column in the colData table contains the group information
-
-RNA-seq/Ribo test for "Group"
 
 
 ```{r}
@@ -180,32 +179,26 @@ dds <- DESeq(dds)
 
 res <- results(dds)
 summary(res)
-res_RvsS <- res
 
 jpeg("rnaseq_ferroptomics/DifferentialAnalysis/dispersion_plot.jpeg", width = 1500, height = 1000)
 plotDispEsts(dds)
 dev.off()
 ```
 
-## 4. Get the results
+## 3. Get the results
 
 ```{r}
 resultsNames(dds)
-res <- results(dds, independentFiltering=TRUE, contrast=c("Group","R","S"), alpha=0.05) #Last level is the base level
-summary(res)
+res_RvsS <- results(dds, independentFiltering=TRUE, contrast=c("Group","R","S"), alpha=0.05) #Last level is the base level
+summary(res_RvsS)
 
-res_lfc <- lfcShrink(dds, contrast = c("Group", "R", "S"), type = "ashr", lfcThreshold = 0, res = res)
+res_RvsS_lfc <- lfcShrink(dds, contrast = c("Group", "R", "S"), type = "ashr", lfcThreshold = 0, res = res)
 
-summary(res_lfc)
-
-res_RvsS <- res_lfc
+summary(res_RvsS_lfc)
 
 ###CONSTRUCT THE SUMMARY TABLE OF ALL PADJ <= 0.05
-library('dplyr')
-library('tibble')
 
-contrast <- "Group_RvsS"
-res <- res_RvsS
+contrast <- "R_vs_S"
 
 FC <- paste("Log2FC_",contrast,sep="")
 p  <- paste("padj_",contrast,sep="")
@@ -219,7 +212,7 @@ MA plot
 
 ```{r}
 jpeg("rnaseq_ferroptomics/DifferentialAnalysis/RNAseq_MAplot_R_vs_S.jpeg", width = 1500, height = 1000)
-plotMA(res_RvsS, ylim=c(-4,10))
+plotMA(res_RvsS_lfc, ylim=c(-4,10))
 dev.off()
 ```
 
@@ -238,31 +231,54 @@ celline <- "human"
 
 DE_file_name <- paste("rnaseq_ferroptomics/DifferentialAnalysis/DE_results_",celline,"_",contrast,".csv", sep="" )
 
-resdata <- merge(as.data.frame(res), as.data.frame(counts(dds, normalized=TRUE)), by="row.names", sort=FALSE)
-```
+resdata <- merge(as.data.frame(res_RvsS_lfc), as.data.frame(counts(dds, normalized=TRUE)), by="row.names", sort=FALSE)
 
-
-```{r}
 names(resdata)[1] <- "Gene"
 head(resdata)
 rownames(resdata) <- resdata$Gene
 resdata <- resdata[-1]
+```
 
-resdata_annot <- resdata
-resdata_annot$Gene <- rownames(resdata_annot)
 
+```{r}
+cols <- c("GENENAME", "ENTREZID", "SYMBOL")
+annotdata <- AnnotationDbi::select(org.Hs.eg.db, keys=countdata_fc_raw$Ensembl_ID, columns=cols, keytype="ENSEMBL")
+
+#Check for non-unique ensg and remove duplicates if necessary
+n_occur <- data.frame(table(annotdata$ENSEMBL))
+n_occur[n_occur$Freq > 1,]
+annotdata <- annotdata[!(annotdata$ENSEMBL %in% n_occur$Var1[n_occur$Freq > 1]),]
+# Manually erase from annotation file where necessary
+
+rownames(annotdata) <- annotdata$ENSEMBL
+annotdata <- annotdata[-1]
+
+resdata_annot <- merge(as.data.frame(resdata),as.data.frame(annotdata),by="row.names",all.x= TRUE)
+rownames(resdata_annot) <- resdata_annot$Row.names
+resdata_annot <- resdata_annot[-1]
+
+head(annotdata)
+```
+
+
+```{r}
 # Regularized log transformation for clustering/heatmaps, etc
 rld <- vst(dds)
 head(assay(rld))
-hist(assay(rld))
+```
 
-library(RColorBrewer)
-(mycols <- brewer.pal(8, "Dark2")[1:length(unique(condition))])
+
+```{r}
+hist(assay(rld))
+```
+
+
+```{r}
+mycols <- brewer.pal(8, "Dark2")[1:length(unique(condition))]
 
 # Sample distance heatmap
 
 sampleDists <- as.matrix(dist(t(assay(rld))))
-library(gplots)
 heatmap.2(as.matrix(sampleDists), key=F, trace="none",
           col=colorpanel(100, "black", "white"),
           ColSideColors=mycols[condition], RowSideColors=mycols[condition],
@@ -795,13 +811,13 @@ write.table(res2, file=RankFileName, sep = "\t", quote=FALSE, row.names=FALSE, c
 ###Pathway
 
 #KEGG
-enrichResult <- WebGestaltR(enrichMethod="GSEA", organism="mmusculus",
+enrichResult <- WebGestaltR(enrichMethod="GSEA", organism="hsapiens",
   enrichDatabase="pathway_KEGG", interestGeneFile=RankFileName, dagColor = "continuous",
   interestGeneType="genesymbol", sigMethod="fdr", fdrThr=0.1, minNum=5, reportNum = 40,
   outputDirectory=dir, projectName = paste("GSEA_",contrast,"_Pathway_KEGG",sep=""))
 
 #WikiPathway
-enrichResult <- WebGestaltR(enrichMethod="GSEA", organism="mmusculus",
+enrichResult <- WebGestaltR(enrichMethod="GSEA", organism="hsapiens",
   enrichDatabase="pathway_Wikipathway", interestGeneFile=RankFileName, dagColor = "continuous",
   interestGeneType="genesymbol", sigMethod="fdr", fdrThr=0.1, minNum=5, reportNum = 40,
   outputDirectory=dir, projectName = paste("GSEA_",contrast,"_Pathway_Wiki",sep=""))
@@ -813,7 +829,7 @@ enrichResult <- WebGestaltR(enrichMethod="GSEA", organism="mmusculus",
 #   outputDirectory=dir, projectName = paste("GSEA_",contrast,"_Pathway_Panther",sep=""))
 
 #Reactome
-enrichResult <- WebGestaltR(enrichMethod="GSEA", organism="mmusculus",
+enrichResult <- WebGestaltR(enrichMethod="GSEA", organism="hsapiens",
   enrichDatabase="pathway_Reactome", interestGeneFile=RankFileName, dagColor = "continuous",
   interestGeneType="genesymbol", sigMethod="fdr", fdrThr=0.1, minNum=5, reportNum = 40,
   outputDirectory=dir, projectName = paste("GSEA_",contrast,"_Pathway_Reactome",sep=""))
