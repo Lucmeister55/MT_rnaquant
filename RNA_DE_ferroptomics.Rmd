@@ -2,6 +2,7 @@
 
 ```{r message=FALSE}
 library(dplyr)
+library(dbplyr)
 library(readr)
 library(DESeq2)
 library(pheatmap)
@@ -12,8 +13,15 @@ library(pcaExplorer)
 library(tibble)
 library(RColorBrewer)
 library(AnnotationDbi)
+library(AnnotationHub)
 library(org.Hs.eg.db)
 library(gplots)
+library(gage)
+library(ensembldb)
+library(clusterProfiler)
+library(magrittr)
+library(EnrichmentBrowser)
+library('R.utils')
 ```
 
 ## 1. Read count table
@@ -349,24 +357,21 @@ condition_name <- "Group"
 celline <- "human"
 ###########SECTION TO BE ADJUSTED#######
 
-
-library("pheatmap")
-
 vsd <- vst(dds)
 vsd_assay <- assay(vsd)
 vsd_assay <- as.data.frame(vsd_assay)
 vsd_assay$Gene <- rownames(vsd_assay)
-
 
 ## Merge with normalized count data
 resdata <- merge(as.data.frame(res), vsd_assay, by="row.names", sort=FALSE)
 names(resdata)[1] <- "Gene"
 rownames(resdata) <- resdata$Gene
 resdata <- resdata[-1]
+
 #Merge with annotation (genesymbol and geneType)
+resdata_annot <- merge(as.data.frame(resdata),as.data.frame(annotdata),by="row.names",all.x= TRUE)
 rownames(resdata_annot) <- resdata_annot$Row.names
 resdata_annot <- resdata_annot[-1]
-
 
 # Selection on padj <= 0.05
 res$padj <- ifelse(is.na(res$padj), 1, res$padj)
@@ -383,8 +388,9 @@ mat$pvalue <- NULL
 mat$baseMean <- NULL
 mat$padj <- NULL
 mat$Gene <- NULL
-mat$name <- NULL
-mat$type <- NULL
+mat$GENENAME <- NULL
+mat$ENTREZID <- NULL
+mat$SYMBOL <- NULL
 
 mat = mat - rowMeans(mat) # Subtract the row means from each value
 # Optional, but to make the plot nicer:
@@ -420,7 +426,9 @@ plotUpDownSigGenes <- function(results, colNums, rld, title) {
     pheatmap(mat, fontsize=5, annotation_col=df, main=paste(title,"top 20 down genes"))
 }
 ```
+
 # Kegg analysis
+
 ```{r setup_go_kegg, echo=FALSE, message=FALSE, warning=FALSE}
 
 #Gene set analysis vs. gene set enrichment analysis
@@ -430,18 +438,11 @@ plotUpDownSigGenes <- function(results, colNums, rld, title) {
 #Overrepresentation analysis (ORA), testing whether a gene set contains disproportional many genes of significant expression change, based on the procedure outlined in the first section
 #Gene set enrichment analysis (GSEA), testing whether genes of a gene set accumulate at the top or bottom of the full gene vector ordered by direction and magnitude of expression change Subramanian et al., 2005
 
-library(gage)
-library(AnnotationHub)
-library(ensembldb)
-library(clusterProfiler)
-library(magrittr) # needs to be run every time you start R and want to use %>%
-library(dplyr)
-library(EnrichmentBrowser)
+res <- res_RvsS
 
 dir.create("rnaseq_ferroptomics/KEGG")
 
 search_kegg_organism(str = "human", by= "common_name")
-
 
 ah <- AnnotationHub()
 ahDb <- query(ah, pattern = c("homo sapiens", "EnsDb", 	105))
@@ -458,8 +459,8 @@ hsa_go <-getGenesets(org = "hsa", db = "go", cache = FALSE)
 resDE_GE <- as.data.frame(res)
 resDE_GE$gene_id <- rownames(res)
 resDE_GE  <- resDE_GE %>% 
-             mutate( abs_log2foldChange =  abs(resDE_GE$log2FoldChange)) %>%               
-             arrange(desc(abs_log2foldChange)) %>% 
+             mutate( abs_log2FoldChange =  abs(resDE_GE$log2FoldChange)) %>%               
+             arrange(desc(abs_log2FoldChange)) %>% 
              dplyr::filter(padj <= 10^-2)
 
 resDE_GE <- resDE_GE[complete.cases(resDE_GE[ , 5:6]),]
@@ -475,7 +476,6 @@ resDE_GE$symbol = mapIds(hsa_db,
                       keytype="GENEID",
                       multiVals="first")
 
-
 #Necessary for the GAGE run input variables
 foldchanges = resDE_GE$log2FoldChange
 names(foldchanges) = resDE_GE$entrez
@@ -490,9 +490,6 @@ print(' Pathways analysis result ')
  keggrespathways_up <-  data.frame(id=rownames(keggs_same$greater), qval=keggs_same$greater[,c('q.val')] ) %>% 
         tbl_df() %>% 
         dplyr::filter(row_number()<=10)
-        #%>% 
-        #.$id %>% 
-        #as.character()
  print( keggrespathways_up )
 
  print('Top 10 GO term')
@@ -525,17 +522,6 @@ print( go_up )
 
 
 ######Set specific result (see table above) to res and process
-
-
-library(gage)
-library(AnnotationHub)
-library(ensembldb)
-library(clusterProfiler)
-library(magrittr) # needs to be run every time you start R and want to use %>%
-library(dplyr)
-library(EnrichmentBrowser)
-library('R.utils')
-
 
 # Get extra ID information => Gene SYMBOL
 
