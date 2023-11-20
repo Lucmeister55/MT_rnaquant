@@ -64,7 +64,7 @@ head(countdata_fc)
 # names(countdata_fc) == sampleTable_exp$sample_id_adj
 
 dds <- DESeqDataSetFromMatrix(countdata_fc, sampleTable_exp, ~1)
-dds$Group <- relevel(dds$Group, "R")
+dds$Group <- relevel(dds$Group, "S")
 # ( "~1" is just a place holder for the design formula which we will add later)
 
 dds <- estimateSizeFactors(dds)
@@ -201,6 +201,7 @@ res_RvsS <- results(dds, independentFiltering=TRUE, contrast=c("Group","R","S"),
 summary(res_RvsS)
 
 res_RvsS_lfc <- lfcShrink(dds, contrast = c("Group", "R", "S"), type = "ashr", lfcThreshold = 0, res = res)
+res_RvsS_lfc <- subset(res_RvsS_lfc, padj < 0.05)
 
 summary(res_RvsS_lfc)
 
