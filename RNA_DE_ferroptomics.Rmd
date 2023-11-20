@@ -32,15 +32,15 @@ library('R.utils')
 countdata_fc_raw <- read.delim("rnaseq_ferroptomics/outputs/count_matrix/countmatrix.csv")
 countdataTPM_fc_raw <- read.delim("rnaseq_ferroptomics/outputs/count_matrix/countmatrix_tpm.csv")
 
-countdata_fc <- countdata_fc_raw %>%
+countdata_fc_full <- countdata_fc_raw %>%
   dplyr::select(-c("gene_symbol", "Ensembl_ID", "length"))
 
-rownames(countdata_fc) <- countdata_fc_raw$Ensembl_ID
 
-#head(countdata_fc)
-print(colSums(is.na(countdata_fc)))
-print(dim(countdata_fc))
-print(colnames(countdata_fc))
+rownames(countdata_fc_full) <- countdata_fc_raw$Ensembl_ID
+
+print(colSums(is.na(countdata_fc_full)))
+print(dim(countdata_fc_full))
+print(colnames(countdata_fc_full))
 ```
 
 ## 2. Read sample table
@@ -56,18 +56,27 @@ print(dim(sampleTable_exp))
 # Full DESeq data object
 
 ```{r}
-new_ids <- sampleTable_exp$sample_id_adj[match(colnames(countdata_fc), sampleTable_exp$run_id)]
-colnames(countdata_fc) <- new_ids
-countdata_fc <- countdata_fc[, sampleTable_exp$sample_id_adj]
-head(countdata_fc)
+new_ids <- sampleTable_exp$sample_id_adj[match(colnames(countdata_fc_full), sampleTable_exp$run_id)]
+colnames(countdata_fc_full) <- new_ids
+countdata_fc_full <- countdata_fc_full[, sampleTable_exp$sample_id_adj]
+head(countdata_fc_full)
 
-# names(countdata_fc) == sampleTable_exp$sample_id_adj
+countdata_fc_filt1 <- countdata_fc_full %>%
+  dplyr::select(-c("SHY14nov_R3_2"))
 
-dds <- DESeqDataSetFromMatrix(countdata_fc, sampleTable_exp, ~1)
-dds$Group <- relevel(dds$Group, "S")
-# ( "~1" is just a place holder for the design formula which we will add later)
+countdata_fc_filt2 <- countdata_fc_filt1 %>%
+  dplyr::select(-c("IMR15dec_R4", "IMR12dec_R3"))
 
-dds <- estimateSizeFactors(dds)
+countdata_fc_filt3 <- countdata_fc_filt2 %>%
+  dplyr::select(-c("IMR21nov_R2", "IMR14nov_R1"))
+
+dds_full <- DESeqDataSetFromMatrix(countdata_fc_full, sampleTable_exp, ~1)
+dds_full$Group <- relevel(dds_full$Group, "S")
+dds_full <- estimateSizeFactors(dds_full)
+
+dds_filt1 <- dds_full[, !(colData(dds_full)$sample_id_adj %in% c("SHY14nov_R3_2"))]
+dds_filt2 <- dds_filt1[, !(colData(dds_filt1)$sample_id_adj %in% c("IMR15dec_R4", "IMR12dec_R3"))]
+dds_filt3 <- dds_filt2[, !(colData(dds_filt2)$sample_id_adj %in% c("IMR21nov_R2", "IMR14nov_R1"))]
 ```
 
 # Sample distances
@@ -75,44 +84,43 @@ dds <- estimateSizeFactors(dds)
 Calculate a *distance matrix*, quantifying dissimilarity of the samples
 
 ```{r}
+sample_distance_heatmap <- function(dds, dir, affix) {
+  #Used different transformations
+  distmat <- as.matrix(dist(t(log2(1 + counts(dds)))))
+  distmat_norm <- as.matrix(dist(t(log2(1 + counts(dds, normalized=TRUE)))))
+  distmat_vst <- as.matrix(dist(t(assay(vst(dds))))) # Can only be performed if the DE is already performed
 
-#Used different transformations
-distmat <- as.matrix(dist(t(log2(1 + counts(dds)))))
-distmat_norm <- as.matrix(dist(t(log2(1 + counts(dds, normalized=TRUE)))))
-distmat_vst <- as.matrix(dist(t(assay(vst(dds))))) # Can only be performed if the DE is already performed
-
-# View( distmat )
-# View( distmat_norm )
-# View (distmat_vst)
-
+  jpeg(paste0(dir, "/Distance_matrix_as_heatmap_normalized_", affix, ".jpeg"), width = 750, height = 750)
+  pheatmap(distmat_norm)
+  dev.off()
+  
+  jpeg(paste0(dir, "/Distance_matrix_as_heatmap_vst_", affix, ".jpeg"), width = 750, height = 750)
+  pheatmap(distmat_vst)
+  dev.off()
+  
+  # Switch off clustering
+  
+  jpeg(paste0(dir, "/Distance_matrix_noclus_as_heatmap_normalized_", affix, ".jpeg"), width = 750, height = 750)
+  pheatmap(distmat_norm,cluster_rows=FALSE, cluster_cols=FALSE)
+  dev.off()
+  
+  jpeg(paste0(dir, "/Distance_matrix_noclus_as_heatmap_vst_", affix, ".jpeg"), width = 750, height = 750)
+  pheatmap(distmat_vst,cluster_rows=FALSE, cluster_cols=FALSE)
+  dev.off()
+}
 ```
 
 Visualize the distance matrix as heatmap
 
 ```{r fig.width=12, fig.height=12}
+affixes <- c("full", "filt1", "filt2", "filt3")
+dds_list <- list(dds_full, dds_filt1, dds_filt2, dds_filt3)
+dir <- "rnaseq_ferroptomics/DataExploration"
+dir.create(dir)
 
-dir.create("rnaseq_ferroptomics/DataExploration")
-
-jpeg("rnaseq_ferroptomics/DataExploration/Distance_matrix_as_heatmap_normalized.jpeg", width = 750, height = 750)
-pheatmap(distmat_norm)
-dev.off()
-
-jpeg("rnaseq_ferroptomics/DataExploration/Distance_matrix_as_heatmap_vst.jpeg", width = 750, height = 750)
-pheatmap(distmat_vst)
-dev.off()
-```
-
-Switch off clustering
-
-```{r fig.width=12, fig.height=12}
-
-jpeg("rnaseq_ferroptomics/DataExploration/Distance_matrix_noclus_as_heatmap_normalized.jpeg", width = 750, height = 750)
-pheatmap(distmat_norm,cluster_rows=FALSE, cluster_cols=FALSE)
-dev.off()
-
-jpeg("rnaseq_ferroptomics/DataExploration/Distance_matrix_noclus_as_heatmap_vst.jpeg", width = 750, height = 750)
-pheatmap(distmat_vst,cluster_rows=FALSE, cluster_cols=FALSE)
-dev.off()
+for (i in seq_along(dds_list)) {
+  sample_distance_heatmap(dds_list[[i]], dir, affixes[i])
+}
 ```
 
 # MATRIX OF SCATTERPLOTS
@@ -148,13 +156,40 @@ panel.cor <- function(x, y, digits=3, prefix="", cex.cor, ...)
 # PCA plot
 
 ```{r}
-rld <- vst(dds)
+plot_pca <- function(dds, dir, affix) {
+  rld <- vst(dds)
 
-jpeg("rnaseq_ferroptomics/DataExploration/PCA.jpeg", width = 900, height = 900)
-pcaplot(rld, intgroup=c("Group"),ellipse = FALSE)
-#plotPCA(rld, intgroup = c("Group"))
+  jpeg(paste0(dir, "/PCA_", affix, ".jpeg"), width = 900, height = 900)
+  pcaplot(rld, intgroup=c("Group"), ellipse = FALSE)
+  dev.off()
+}
+```
+
+
+```{r}
+dir <- "rnaseq_ferroptomics/DataExploration"
+dir.create(dir)
+
+rld_full <- vst(dds_full)
+rld_filt1 <- vst(dds_filt1)
+rld_filt2 <- vst(dds_filt2)
+rld_filt3 <- vst(dds_filt3)
+
+jpeg(paste0(dir, "/PCA_full.jpeg"), width = 900, height = 900)
+pcaplot(rld_full, intgroup=c("Group"), ellipse = FALSE)
 dev.off()
 
+jpeg(paste0(dir, "/PCA_filt1.jpeg"), width = 900, height = 900)
+pcaplot(rld_filt1, intgroup=c("Group"), ellipse = FALSE)
+dev.off()
+
+jpeg(paste0(dir, "/PCA_filt2.jpeg"), width = 900, height = 900)
+pcaplot(rld_filt2, intgroup=c("Group"), ellipse = FALSE)
+dev.off()
+
+jpeg(paste0(dir, "/PCA_filt3.jpeg"), width = 900, height = 900)
+pcaplot(rld_filt3, intgroup=c("Group"), ellipse = FALSE)
+dev.off()
 ```
 
 
@@ -165,6 +200,8 @@ For our setup, we want to compare R and S
 ## 1. Size factors and metadata
 
 ```{r}
+dds <- dds_filt3
+
 # Calculate sizeFactors (should be 1)
 sizeFactors(dds)
 
@@ -207,20 +244,13 @@ summary(res_RvsS_lfc)
 
 ###CONSTRUCT THE SUMMARY TABLE OF ALL PADJ <= 0.05
 
-contrast <- "R_vs_S"
-
-FC <- paste("Log2FC_",contrast,sep="")
-p  <- paste("padj_",contrast,sep="")
-assign(paste("res_",contrast,sep=""), rownames_to_column(as.data.frame(res),"gene") %>% 
-  dplyr::filter(padj <= 0.05) %>%
-  dplyr::select(gene, log2FoldChange, padj) %>%
-  dplyr::rename(!!FC := log2FoldChange, !!p := padj))
+contrast <- "RvsS"
 ```
 
 MA plot
 
 ```{r}
-jpeg("rnaseq_ferroptomics/DifferentialAnalysis/RNAseq_MAplot_R_vs_S.jpeg", width = 1500, height = 1000)
+jpeg("rnaseq_ferroptomics/DifferentialAnalysis/MAplot_RvsS.jpeg", width = 1500, height = 1000)
 plotMA(res_RvsS_lfc, ylim=c(-4,10))
 dev.off()
 ```
@@ -232,7 +262,7 @@ Other plotting functions
 # Set generic dds and res, condition, resdata and resdata_annot
 
 ###########SECTION TO BE ADJUSTED#######
-contrast <- "R_vs_S"
+contrast <- "RvsS"
 condition <- colData(dds)$Group
 condition_name <- "Group"
 celline <- "human"
@@ -250,16 +280,17 @@ resdata <- resdata[-1]
 
 
 ```{r}
-cols <- c("GENENAME", "ENTREZID", "SYMBOL")
-annotdata <- AnnotationDbi::select(org.Hs.eg.db, keys=countdata_fc_raw$Ensembl_ID, columns=cols, keytype="ENSEMBL")
+annotdata <- read.table("rnaseq_ferroptomics/mart_export.txt",sep = '\t', header=TRUE)
+colnames(annotdata) <- c('ensg','name','type','description')
 
 #Check for non-unique ensg and remove duplicates if necessary
-n_occur <- data.frame(table(annotdata$ENSEMBL))
+n_occur <- data.frame(table(annotdata$ensg))
 n_occur[n_occur$Freq > 1,]
-annotdata <- annotdata[!(annotdata$ENSEMBL %in% n_occur$Var1[n_occur$Freq > 1]),]
+annotdata[annotdata$ensg %in% n_occur$Var1[n_occur$Freq == 1],]
+
 # Manually erase from annotation file where necessary
 
-rownames(annotdata) <- annotdata$ENSEMBL
+rownames(annotdata) <- annotdata$ensg
 annotdata <- annotdata[-1]
 
 resdata_annot <- merge(as.data.frame(resdata),as.data.frame(annotdata),by="row.names",all.x= TRUE)
@@ -352,7 +383,7 @@ dev.off()
 ```{r}
 
 ###########SECTION TO BE ADJUSTED#######
-contrast <- "R_vs_S"
+contrast <- "RvsS"
 condition <- colData(dds)$Group
 condition_name <- "Group"
 celline <- "human"
@@ -389,9 +420,9 @@ mat$pvalue <- NULL
 mat$baseMean <- NULL
 mat$padj <- NULL
 mat$Gene <- NULL
-mat$GENENAME <- NULL
-mat$ENTREZID <- NULL
-mat$SYMBOL <- NULL
+mat$name <- NULL
+mat$type <- NULL
+mat$description <- NULL
 
 mat = mat - rowMeans(mat) # Subtract the row means from each value
 # Optional, but to make the plot nicer:
