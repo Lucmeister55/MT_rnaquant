@@ -1,2 +1,0 @@
-# Coverage: 1
-mmu05322

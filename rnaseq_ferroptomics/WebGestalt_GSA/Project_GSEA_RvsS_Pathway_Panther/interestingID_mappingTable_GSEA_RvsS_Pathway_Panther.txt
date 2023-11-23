@@ -1,0 +1,11 @@
+userId	geneSymbol	geneName	entrezgene	score	gLink
+C2	C2	complement component 2 (within H-2S)	12263	7.23564599323104	https://www.ncbi.nlm.nih.gov/gene/?term=12263
+C3	C3	complement component 3	12266	1741.14959407672	https://www.ncbi.nlm.nih.gov/gene/?term=12266
+C6	C6	complement component 6	12274	11.5701677774265	https://www.ncbi.nlm.nih.gov/gene/?term=12274
+C7	C7	complement component 7	109828	5142.18505393303	https://www.ncbi.nlm.nih.gov/gene/?term=109828
+C9orf72	C9orf72	C9orf72, member of C9orf72-SMCR8 complex	73205	773.687894844765	https://www.ncbi.nlm.nih.gov/gene/?term=73205
+F12	F12	coagulation factor XII (Hageman factor)	58992	536.698071199038	https://www.ncbi.nlm.nih.gov/gene/?term=58992
+F3	F3	coagulation factor III	14066	145.244158161343	https://www.ncbi.nlm.nih.gov/gene/?term=14066
+F7	F7	coagulation factor VII	14068	15.0936335710777	https://www.ncbi.nlm.nih.gov/gene/?term=14068
+F8	F8	coagulation factor VIII	14069	87.955641793141	https://www.ncbi.nlm.nih.gov/gene/?term=14069
+H19	H19	H19, imprinted maternally expressed transcript	14955	101.457048122636	https://www.ncbi.nlm.nih.gov/gene/?term=14955

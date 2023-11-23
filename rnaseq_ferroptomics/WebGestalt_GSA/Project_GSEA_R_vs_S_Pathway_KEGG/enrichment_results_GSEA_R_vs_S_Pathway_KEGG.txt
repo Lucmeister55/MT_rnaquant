@@ -1,2 +1,0 @@
-geneSet	description	link	enrichmentScore	normalizedEnrichmentScore	pValue	FDR	size	plotPath	leadingEdgeNum	leadingEdgeId	userId
-mmu05322	Systemic lupus erythematosus	http://www.kegg.jp/kegg-bin/show_pathway?mmu05322+109828+12266	0.9966041142714381	1.3124627785008873	0.022148394216889928	0.021528525296017224	5	./Project_GSEA_R_vs_S_Pathway_KEGG_GSEA/mmu05322.png	2	109828;12266	C3;C7

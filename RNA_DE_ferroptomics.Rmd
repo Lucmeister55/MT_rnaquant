@@ -22,6 +22,9 @@ library(clusterProfiler)
 library(magrittr)
 library(EnrichmentBrowser)
 library('R.utils')
+library(fgsea)
+library(data.table)
+library(WebGestaltR)
 ```
 
 ## 1. Read count table
@@ -156,17 +159,6 @@ panel.cor <- function(x, y, digits=3, prefix="", cex.cor, ...)
 # PCA plot
 
 ```{r}
-plot_pca <- function(dds, dir, affix) {
-  rld <- vst(dds)
-
-  jpeg(paste0(dir, "/PCA_", affix, ".jpeg"), width = 900, height = 900)
-  pcaplot(rld, intgroup=c("Group"), ellipse = FALSE)
-  dev.off()
-}
-```
-
-
-```{r}
 dir <- "rnaseq_ferroptomics/DataExploration"
 dir.create(dir)
 
@@ -210,7 +202,7 @@ colData(dds)
 
 ## 2. Set design
 
-Comparing two types of samples, wich differ by a single covariate (here: `Group`), ("a two-group comparison") is  straight-forward.
+Comparing two types of samples, which differ by a single covariate (here: `Group`), ("a two-group comparison") is straight-forward.
 
 Set the comparison type, i.e. indicate which column in the colData table contains the group information
 
@@ -273,9 +265,9 @@ DE_file_name <- paste("rnaseq_ferroptomics/DifferentialAnalysis/DE_results_",cel
 resdata <- merge(as.data.frame(res_RvsS_lfc), as.data.frame(counts(dds, normalized=TRUE)), by="row.names", sort=FALSE)
 
 names(resdata)[1] <- "Gene"
-head(resdata)
 rownames(resdata) <- resdata$Gene
 resdata <- resdata[-1]
+head(resdata)
 ```
 
 
@@ -285,7 +277,6 @@ colnames(annotdata) <- c('ensg','name','type','description')
 
 #Check for non-unique ensg and remove duplicates if necessary
 n_occur <- data.frame(table(annotdata$ensg))
-n_occur[n_occur$Freq > 1,]
 annotdata[annotdata$ensg %in% n_occur$Var1[n_occur$Freq == 1],]
 
 # Manually erase from annotation file where necessary
@@ -341,9 +332,13 @@ write.csv(resdata_annot, DE_file_name)
 
 ```{r}
 ## Examine plot of p-values
-
+png(paste("rnaseq_ferroptomics/DifferentialAnalysis/DE_pvalplot_",celline,"_",contrast,".png", sep=""), 1500, 1000, pointsize=20)
 hist(resdata_annot$pvalue, breaks=50, col="grey")
+dev.off()
+```
 
+
+```{r}
 maplot <- function (res, thresh=0.05, labelsig=TRUE, textcx=1, ...) {
   with(res, plot(baseMean, log2FoldChange, pch=20, cex=.5, log="x", ...))
   with(subset(res, padj<thresh), points(baseMean, log2FoldChange, col="red", pch=20, cex=0.5))
@@ -351,6 +346,7 @@ maplot <- function (res, thresh=0.05, labelsig=TRUE, textcx=1, ...) {
     require(calibrate)
   }
 }
+
 png(paste("rnaseq_ferroptomics/DifferentialAnalysis/DE_MAplot_",celline,"_",contrast,".png", sep=""), 1500, 1000, pointsize=20)
 maplot(resdata_annot, main="MA Plot", ylim=c(-10,10))
 dev.off()
@@ -387,6 +383,7 @@ contrast <- "RvsS"
 condition <- colData(dds)$Group
 condition_name <- "Group"
 celline <- "human"
+res <- res_RvsS_lfc
 ###########SECTION TO BE ADJUSTED#######
 
 vsd <- vst(dds)
@@ -462,15 +459,12 @@ plotUpDownSigGenes <- function(results, colNums, rld, title) {
 # Kegg analysis
 
 ```{r setup_go_kegg, echo=FALSE, message=FALSE, warning=FALSE}
-
 #Gene set analysis vs. gene set enrichment analysis
 
 #The two predominantly used enrichment methods are:
 
 #Overrepresentation analysis (ORA), testing whether a gene set contains disproportional many genes of significant expression change, based on the procedure outlined in the first section
 #Gene set enrichment analysis (GSEA), testing whether genes of a gene set accumulate at the top or bottom of the full gene vector ordered by direction and magnitude of expression change Subramanian et al., 2005
-
-res <- res_RvsS
 
 dir.create("rnaseq_ferroptomics/KEGG")
 
@@ -511,27 +505,23 @@ resDE_GE$symbol = mapIds(hsa_db,
 #Necessary for the GAGE run input variables
 foldchanges = resDE_GE$log2FoldChange
 names(foldchanges) = resDE_GE$entrez
- 
-write.csv(resDE_GE, file="rnaseq_ferroptomics/KEGG/DE_GE.csv")
- 
-keggs_same <- gage(exprs = foldchanges, gsets = hsa_gs, ref = NULL, samp = NULL, same.dir = FALSE)
-print(' Pathways analysis result ')
- print('Top 10 kegg pathway ')
- print (head(keggs_same$greater,10))
- head(keggs_same$greater[, 1:5], 4)
- keggrespathways_up <-  data.frame(id=rownames(keggs_same$greater), qval=keggs_same$greater[,c('q.val')] ) %>% 
-        tbl_df() %>% 
-        dplyr::filter(row_number()<=10)
- print( keggrespathways_up )
 
- print('Top 10 GO term')
- go_same <- gage(exprs = foldchanges, gsets = hsa_go, ref = NULL, samp = NULL, same.dir = FALSE)
- print (head(go_same$greater,10))
- go_up <-  data.frame(id=rownames(go_same$greater), pval=go_same$greater[,c('p.val')], qval=go_same$greater[,c('q.val')]) %>% 
-        tbl_df() %>% 
-        dplyr::filter(row_number()<=10) 
-        
-print( go_up )
+write.csv(resDE_GE, file="rnaseq_ferroptomics/KEGG/DE_GE.csv")
+```
+
+
+```{r}
+keggs_same <- gage(exprs = foldchanges, gsets = hsa_gs, ref = NULL, samp = NULL, same.dir = FALSE)
+print('Pathways analysis result')
+print('Top 10 kegg pathway')
+print(head(data.frame(keggs_same$greater,10)))
+```
+
+
+```{r}
+print('Top 10 GO term')
+go_same <- gage(exprs = foldchanges, gsets = hsa_go, ref = NULL, samp = NULL, same.dir = FALSE)
+print(head(data.frame(go_same$greater,10)))
 ```
 
 # fsgea analysis (GSEA for pathway and Gene Ontology)
@@ -557,6 +547,8 @@ print( go_up )
 
 # Get extra ID information => Gene SYMBOL
 
+dir.create("rnaseq_ferroptomics/fsgea")
+
 search_kegg_organism(str = "human", by= "common_name")
 
 ah <- AnnotationHub()
@@ -581,18 +573,18 @@ resDE_GE$symbol = mapIds(hsa_db,
 # Only top 2000 expressed genes are taken into account (otherwise the GSEA ranking has too many elements with equal stats (because of low expression), messing up the ranking))
 res2 <- resDE_GE %>% 
   top_n(2000, baseMean) %>%
-  dplyr::select(symbol, stat) %>%
+  dplyr::select(symbol, baseMean) %>%
   na.omit() %>% 
   distinct() %>% 
   group_by(symbol) %>% 
-  summarize(stat=mean(stat))
+  summarize(stat=mean(baseMean))
 res2
 
 ranks <- deframe(res2)
 head(ranks, 20)
 
 ### PATHWAY ANALYSIS - KEGG
-fgseaRes <- fgsea(pathways=gmtPathways("msigdb_v7.1_files_to_download_locally/msigdb_v7.1_GMTs/c2.cp.kegg.v7.1.symbols.gmt"), ranks, nperm=1000) %>% 
+fgseaRes <- fgsea(pathways=gmtPathways("rnaseq_ferroptomics/fsgea/c2.cp.kegg.v7.1.symbols.gmt"), ranks) %>% 
   as_tibble() %>% 
   arrange(padj)
 
@@ -601,11 +593,11 @@ fgseaResTidy <- fgseaRes %>%
   dplyr::filter(padj <= 0.25) %>%
   arrange(desc(abs(NES)))
 
-fwrite(fgseaResTidy, file=paste("GSEA_PATHWAY_KEGG_", celline,"_", contrast, ".csv", sep="" ), sep=",", sep2=c("", " ", ""))
+fwrite(fgseaResTidy, file=paste("rnaseq_ferroptomics/fsgea/GSEA_PATHWAY_KEGG_", celline,"_", contrast, ".csv", sep="" ), sep=",", sep2=c("", " ", ""))
 
 
 ### PATHWAY ANALYSIS
-fgseaRes <- fgsea(pathways=gmtPathways("msigdb_v7.1_files_to_download_locally/msigdb_v7.1_GMTs/c2.cp.v7.1.symbols.gmt"), ranks, nperm=1000) %>% 
+fgseaRes <- fgsea(pathways=gmtPathways("rnaseq_ferroptomics/fsgea/c2.cp.v7.1.symbols.gmt"), ranks) %>% 
   as_tibble() %>% 
   arrange(padj)
   
@@ -614,32 +606,32 @@ fgseaResTidy <- fgseaRes %>%
   dplyr::filter(padj <= 0.25) %>%
   arrange(desc(abs(NES)))
 
-fwrite(fgseaResTidy, file=paste("GSEA_PATHWAY_", celline,"_", contrast, ".csv", sep="" ), sep=",", sep2=c("", " ", ""))
+fwrite(fgseaResTidy, file=paste("rnaseq_ferroptomics/fsgea/GSEA_PATHWAY_", celline,"_", contrast, ".csv", sep="" ), sep=",", sep2=c("", " ", ""))
 
  
 ### GO ANALYSIS
 #BIOLOGICAL PROCESS
-fgseaRes <- fgsea(pathways=gmtPathways("msigdb_v7.1_files_to_download_locally/msigdb_v7.1_GMTs/c5.bp.v7.1.symbols.gmt"), ranks, nperm=1000) 
+fgseaRes <- fgsea(pathways=gmtPathways("rnaseq_ferroptomics/fsgea/c5.bp.v7.1.symbols.gmt"), ranks) 
 
 fgseaResTidy <- fgseaRes %>%
   as_tibble() %>%
   dplyr::filter(padj <= 0.25) %>%
   arrange(desc(abs(NES)))
 
-fwrite(fgseaResTidy, file=paste("GSEA_GO_BP_", celline,"_", contrast, ".csv", sep="" ), sep=",", sep2=c("", " ", ""))
+fwrite(fgseaResTidy, file=paste("rnaseq_ferroptomics/fsgea/GSEA_GO_BP_", celline,"_", contrast, ".csv", sep="" ), sep=",", sep2=c("", " ", ""))
  #write.csv(fgseaResTidySel, file=paste("GSEA_GO_BP_", celline,"_", contrast, ".csv", sep="" ))
 
  #MOLECULAR FUNCTION
- fgseaRes <- fgsea(pathways=gmtPathways("msigdb_v7.1_files_to_download_locally/msigdb_v7.1_GMTs/c5.mf.v7.1.symbols.gmt"), ranks, nperm=1000) 
+ fgseaRes <- fgsea(pathways=gmtPathways("rnaseq_ferroptomics/fsgea/c5.mf.v7.1.symbols.gmt"), ranks) 
 
 fgseaResTidy <- fgseaRes %>%
   as_tibble() %>%
   dplyr::filter(padj <= 0.25) %>%
   arrange(desc(abs(NES)))
-fwrite(fgseaResTidy, file=paste("GSEA_GO_MF_", celline,"_", contrast, ".csv", sep="" ), sep=",", sep2=c("", " ", ""))
+fwrite(fgseaResTidy, file=paste("rnaseq_ferroptomics/fsgea/GSEA_GO_MF_", celline,"_", contrast, ".csv", sep="" ), sep=",", sep2=c("", " ", ""))
  
 #CELLULAR COMPONENT
- fgseaRes <- fgsea(pathways=gmtPathways("msigdb_v7.1_files_to_download_locally/msigdb_v7.1_GMTs/c5.cc.v7.1.symbols.gmt"), ranks, nperm=1000) 
+ fgseaRes <- fgsea(pathways=gmtPathways("rnaseq_ferroptomics/fsgea/c5.cc.v7.1.symbols.gmt"), ranks) 
 
 fgseaResTidy <- fgseaRes %>%
   as_tibble() %>%
@@ -647,20 +639,12 @@ fgseaResTidy <- fgseaRes %>%
   arrange(desc(abs(NES)))
 
 
-fwrite(fgseaResTidy, file=paste("GSEA_GO_CC_", celline,"_", contrast, ".csv", sep="" ), sep=",", sep2=c("", " ", ""))
-
-
+fwrite(fgseaResTidy, file=paste("rnaseq_ferroptomics/fsgea/GSEA_GO_CC_", celline,"_", contrast, ".csv", sep="" ), sep=",", sep2=c("", " ", ""))
 ```
 
 # WebGestalt  (ORA, Over-representation Analysis)
 
 ```{r}
-
-library(WebGestaltR)
-library(AnnotationHub)
-library(magrittr) # needs to be run every time you start R and want to use %>%
-library(dplyr)
-
 #Check available genesets
 listGeneSet("hsapiens")
 
@@ -763,11 +747,6 @@ referenceGeneType="genesymbol", isOutput=TRUE, sigMethod="top", minNum=5, report
 # WebGestalt  (GSEA, Gene Set Enrichment Analysis)
 
 ```{r}
-
-library(WebGestaltR)
-library(AnnotationHub)
-library(magrittr) # needs to be run every time you start R and want to use %>%
-library(dplyr)
 
 dir <- "rnaseq_ferroptomics/WebGestalt_GSA/"
 dir.create(dir)
