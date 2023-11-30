@@ -167,19 +167,19 @@ rld_filt1 <- vst(dds_filt1)
 rld_filt2 <- vst(dds_filt2)
 rld_filt3 <- vst(dds_filt3)
 
-jpeg(paste0(dir, "/PCA_full.jpeg"), width = 900, height = 900)
+png(paste0(dir, "/PCA_full.png"), width = 900, height = 900)
 pcaplot(rld_full, intgroup=c("Group"), ellipse = FALSE)
 dev.off()
 
-jpeg(paste0(dir, "/PCA_filt1.jpeg"), width = 900, height = 900)
+png(paste0(dir, "/PCA_filt1.png"), width = 900, height = 900)
 pcaplot(rld_filt1, intgroup=c("Group"), ellipse = FALSE)
 dev.off()
 
-jpeg(paste0(dir, "/PCA_filt2.jpeg"), width = 900, height = 900)
+png(paste0(dir, "/PCA_filt2.png"), width = 900, height = 900)
 pcaplot(rld_filt2, intgroup=c("Group"), ellipse = FALSE)
 dev.off()
 
-jpeg(paste0(dir, "/PCA_filt3.jpeg"), width = 900, height = 900)
+png(paste0(dir, "/PCA_filt3.png"), width = 900, height = 900)
 pcaplot(rld_filt3, intgroup=c("Group"), ellipse = FALSE)
 dev.off()
 ```
