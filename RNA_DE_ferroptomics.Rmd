@@ -224,8 +224,8 @@ for (i in seq_along(dds_list)) {
 
   dds_deseq <- DESeq(dds)
   
-  res <- results(dds_deseq, alpha = 0.05)
-  summary(res)
+  res <- results(dds_deseq)
+  summary(subset(res, alpha = 0.05))
   
   jpeg(paste0("rnaseq_ferroptomics/DifferentialAnalysis/dispersion_plot_", affix, ".jpeg"), width = 1500, height = 1000)
   plotDispEsts(dds_deseq)
@@ -245,7 +245,7 @@ for (i in seq_along(dds_deseq_list)) {
   print(affixes[i])
   
   resultsNames(dds)
-  res_RvsS <- results(dds, independentFiltering=TRUE, contrast=c("Group","R","S"), alpha=0.05) #Last level is the base level
+  res_RvsS <- results(dds, independentFiltering=TRUE, contrast=c("Group","R","S")) #Last level is the base level
   summary(subset(res_RvsS, padj < 0.05))
   
   res_RvsS_lfc <- lfcShrink(dds, contrast = c("Group", "R", "S"), type = "ashr", lfcThreshold = 0, res = res_RvsS)
