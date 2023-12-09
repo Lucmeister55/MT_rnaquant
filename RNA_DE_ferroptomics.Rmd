@@ -192,12 +192,15 @@ For our setup, we want to compare R and S
 ## 1. Size factors and metadata
 
 ```{r}
-dds <- dds_filt3
 
 # Calculate sizeFactors (should be 1)
-sizeFactors(dds)
 
-colData(dds)
+for (i in seq_along(dds_list)) {
+  dds <- dds_list[[i]]
+  print(affixes[i])
+  print(sizeFactors(dds))
+  # print(colData(dds))
+}
 ```
 
 ## 2. Set design
@@ -210,41 +213,51 @@ Set the comparison type, i.e. indicate which column in the colData table contain
 ```{r}
 dir.create("rnaseq_ferroptomics/DifferentialAnalysis")
 
-design(dds) <- ~ Group
+dds_deseq_list = list()
 
-dds <- DESeq(dds)
+for (i in seq_along(dds_list)) {
+  dds <- dds_list[[i]]
+  affix <- affixes[[i]]
+  print(affix)
+  
+  design(dds) <- ~ Group
 
-res <- results(dds)
-summary(res)
-
-jpeg("rnaseq_ferroptomics/DifferentialAnalysis/dispersion_plot.jpeg", width = 1500, height = 1000)
-plotDispEsts(dds)
-dev.off()
+  dds_deseq <- DESeq(dds)
+  
+  res <- results(dds_deseq, alpha = 0.05)
+  summary(res)
+  
+  jpeg(paste0("rnaseq_ferroptomics/DifferentialAnalysis/dispersion_plot_", affix, ".jpeg"), width = 1500, height = 1000)
+  plotDispEsts(dds_deseq)
+  dev.off()
+  
+  dds_deseq_list <- c(dds_deseq_list, dds_deseq)
+}
 ```
 
 ## 3. Get the results
 
 ```{r}
-resultsNames(dds)
-res_RvsS <- results(dds, independentFiltering=TRUE, contrast=c("Group","R","S"), alpha=0.05) #Last level is the base level
-summary(res_RvsS)
+res_RvsS_lfc_list <- list()
 
-res_RvsS_lfc <- lfcShrink(dds, contrast = c("Group", "R", "S"), type = "ashr", lfcThreshold = 0, res = res)
-res_RvsS_lfc <- subset(res_RvsS_lfc, padj < 0.05)
-
-summary(res_RvsS_lfc)
+for (i in seq_along(dds_deseq_list)) {
+  dds <- dds_deseq_list[[i]]
+  print(affixes[i])
+  
+  resultsNames(dds)
+  res_RvsS <- results(dds, independentFiltering=TRUE, contrast=c("Group","R","S"), alpha=0.05) #Last level is the base level
+  summary(subset(res_RvsS, padj < 0.05))
+  
+  res_RvsS_lfc <- lfcShrink(dds, contrast = c("Group", "R", "S"), type = "ashr", lfcThreshold = 0, res = res_RvsS)
+  
+  summary(subset(res_RvsS_lfc, padj < 0.05))
+  
+  res_RvsS_lfc_list <- c(res_RvsS_lfc_list, res_RvsS_lfc)
+}
 
 ###CONSTRUCT THE SUMMARY TABLE OF ALL PADJ <= 0.05
 
 contrast <- "RvsS"
-```
-
-MA plot
-
-```{r}
-jpeg("rnaseq_ferroptomics/DifferentialAnalysis/MAplot_RvsS.jpeg", width = 1500, height = 1000)
-plotMA(res_RvsS_lfc, ylim=c(-4,10))
-dev.off()
 ```
 
 Other plotting functions
@@ -255,19 +268,27 @@ Other plotting functions
 
 ###########SECTION TO BE ADJUSTED#######
 contrast <- "RvsS"
-condition <- colData(dds)$Group
 condition_name <- "Group"
 celline <- "human"
 ###########SECTION TO BE ADJUSTED#######
 
-DE_file_name <- paste("rnaseq_ferroptomics/DifferentialAnalysis/DE_results_",celline,"_",contrast,".csv", sep="" )
+resdata_list <- list()
 
-resdata <- merge(as.data.frame(res_RvsS_lfc), as.data.frame(counts(dds, normalized=TRUE)), by="row.names", sort=FALSE)
+for (i in seq_along(dds_deseq_list)) {
+  res <- res_RvsS_lfc_list[[i]]
+  dds <- dds_deseq_list[[i]]
+  affix <- affixes[i]
+  print(affix)
+  
+  resdata <- merge(as.data.frame(res), as.data.frame(counts(dds, normalized=TRUE)), by="row.names", sort=FALSE)
 
-names(resdata)[1] <- "Gene"
-rownames(resdata) <- resdata$Gene
-resdata <- resdata[-1]
-head(resdata)
+  names(resdata)[1] <- "Gene"
+  rownames(resdata) <- resdata$Gene
+  resdata <- resdata[-1]
+  head(resdata)
+  
+  resdata_list <- c(resdata_list, list(resdata))
+}
 ```
 
 
@@ -283,95 +304,127 @@ annotdata[annotdata$ensg %in% n_occur$Var1[n_occur$Freq == 1],]
 
 rownames(annotdata) <- annotdata$ensg
 annotdata <- annotdata[-1]
-
-resdata_annot <- merge(as.data.frame(resdata),as.data.frame(annotdata),by="row.names",all.x= TRUE)
-rownames(resdata_annot) <- resdata_annot$Row.names
-resdata_annot <- resdata_annot[-1]
-
 head(annotdata)
+
+resdata_annot_list <- list()
+
+for (i in seq_along(resdata_list)) {
+  resdata <- resdata_list[[i]]
+  affix <- affixes[i]
+  print(affix)
+  
+  resdata_annot <- merge(as.data.frame(resdata),as.data.frame(annotdata),by="row.names",all.x= TRUE)
+  rownames(resdata_annot) <- resdata_annot$Row.names
+  resdata_annot <- resdata_annot[-1]
+  
+  resdata_annot_list <- c(resdata_annot_list, list(resdata_annot))
+}
 ```
 
 
 ```{r}
 # Regularized log transformation for clustering/heatmaps, etc
-rld <- vst(dds)
-head(assay(rld))
+
+rld_list <- list()
+
+for (i in seq_along(dds_deseq_list)) {
+  dds <- dds_deseq_list[[i]]
+  affix <- affixes[i]
+  print(affix)
+  
+  rld <- vst(dds)
+  head(assay(rld))
+  
+  png(paste0("rnaseq_ferroptomics/DifferentialAnalysis/rld_hist_", affix, ".png"))
+  hist(assay(rld))
+  dev.off()
+  
+  rld_list <- c(rld_list, rld)
+}
 ```
 
 
 ```{r}
-hist(assay(rld))
+condition_list <- list()
+
+for (i in seq_along(dds_deseq_list)) {
+  dds <- dds_deseq_list[[i]]
+  rld <- rld_list[[i]]
+  affix <- affixes[i]
+  print(affix)
+  
+  condition <- colData(dds)$Group
+  
+  mycols <- brewer.pal(8, "Dark2")[1:length(unique(condition))]
+
+  # Sample distance heatmap
+  
+  sampleDists <- as.matrix(dist(t(assay(rld))))
+  
+  png(paste0("rnaseq_ferroptomics/DifferentialAnalysis/heatmap_sampdist_", affix, ".png"))
+  heatmap.2(as.matrix(sampleDists), key=F, trace="none",
+            col=colorpanel(100, "black", "white"),
+            ColSideColors=mycols[condition], RowSideColors=mycols[condition],
+            margin=c(20, 20), main="Sample Distance Matrix")
+  dev.off()
+  
+  condition_list <- list(condition_list, condition)
+}
 ```
 
 
 ```{r}
-mycols <- brewer.pal(8, "Dark2")[1:length(unique(condition))]
+for (i in seq_along(resdata_annot_list)) {
+  resdata_annot <- resdata_annot_list[[i]]
+  res <- res_RvsS_lfc_list[[i]]
+  affix <- affixes[i]
+  print(affix)
+  
+  DE_file_name <- paste("rnaseq_ferroptomics/DifferentialAnalysis/DE_results_",celline,"_",contrast,"_", affix,".csv", sep="" )
 
-# Sample distance heatmap
-
-sampleDists <- as.matrix(dist(t(assay(rld))))
-heatmap.2(as.matrix(sampleDists), key=F, trace="none",
-          col=colorpanel(100, "black", "white"),
-          ColSideColors=mycols[condition], RowSideColors=mycols[condition],
-          margin=c(20, 20), main="Sample Distance Matrix")
-```
-
-
-```{r}
-# Principal components analysis
-
-pcaplot(rld, intgroup=condition_name,ellipse = FALSE)
-
-## Order by adjusted p-value
-resdata_annot <- resdata_annot[order(resdata_annot$padj), ]
-
-## Write results
-write.csv(resdata_annot, DE_file_name)
-```
-
-
-```{r}
-## Examine plot of p-values
-png(paste("rnaseq_ferroptomics/DifferentialAnalysis/DE_pvalplot_",celline,"_",contrast,".png", sep=""), 1500, 1000, pointsize=20)
-hist(resdata_annot$pvalue, breaks=50, col="grey")
-dev.off()
-```
-
-
-```{r}
-maplot <- function (res, thresh=0.05, labelsig=TRUE, textcx=1, ...) {
+  ## Order by adjusted p-value
+  resdata_annot <- resdata_annot[order(resdata_annot$padj), ]
+  
+  ## Write results
+  write.csv(resdata_annot, DE_file_name)
+  
+  ## Examine plot of p-values
+  png(paste("rnaseq_ferroptomics/DifferentialAnalysis/DE_pvalplot_",celline,"_",contrast,"_", affix, ".png", sep=""), 1500, 1000, pointsize=20)
+  hist(resdata_annot$pvalue, breaks=50, col="grey")
+  dev.off()
+  
+  ## MA-plot
+  
+  maplot <- function (res, thresh=0.05, labelsig=TRUE, textcx=1, ...) {
   with(res, plot(baseMean, log2FoldChange, pch=20, cex=.5, log="x", ...))
   with(subset(res, padj<thresh), points(baseMean, log2FoldChange, col="red", pch=20, cex=0.5))
   if (labelsig) {
     require(calibrate)
+    }
   }
-}
-
-png(paste("rnaseq_ferroptomics/DifferentialAnalysis/DE_MAplot_",celline,"_",contrast,".png", sep=""), 1500, 1000, pointsize=20)
-maplot(resdata_annot, main="MA Plot", ylim=c(-10,10))
-dev.off()
-
-resdata_annot_notnull <- resdata_annot %>% dplyr::filter(padj !=0)
-minpvaladj <- min(resdata_annot_notnull$padj, na.rm = TRUE)
-```
-
-
-```{r}
-## Volcano plot with "significant" genes labeled
-volcanoplot <- function (res, lfcthresh=2, sigthresh=0.05, main="Volcano Plot", legendpos="bottomleft", labelsig=TRUE, textcx=1, ...) {
-  with(res, plot(log2FoldChange, -log10(pvalue+minpvaladj), pch=20, main=main, ...))
-  with(subset(res, padj<sigthresh ), points(log2FoldChange, -log10(pvalue+minpvaladj), pch=20, col="red", ...))
-  with(subset(res, abs(log2FoldChange)>lfcthresh), points(log2FoldChange, -log10(pvalue+minpvaladj), pch=20, col="orange", ...))
-  with(subset(res, padj<sigthresh & abs(log2FoldChange)>lfcthresh), points(log2FoldChange, -log10(pvalue+minpvaladj), pch=20, col="green", ...))
-  if (labelsig) {
-    require(calibrate)
+  
+  png(paste("rnaseq_ferroptomics/DifferentialAnalysis/DE_MAplot_",celline,"_",contrast,"_", affix, ".png", sep=""), 1500, 1000, pointsize=20)
+  maplot(resdata_annot, main="MA Plot", ylim=c(-10,10))
+  dev.off()
+  
+  resdata_annot_notnull <- resdata_annot %>% dplyr::filter(padj !=0)
+  minpvaladj <- min(resdata_annot_notnull$padj, na.rm = TRUE)
+  
+  ## Volcano plot with "significant" genes labeled
+  volcanoplot <- function (res, lfcthresh=2, sigthresh=0.05, main="Volcano Plot", legendpos="bottomleft", labelsig=TRUE, textcx=1, ...) {
+    with(res, plot(log2FoldChange, -log10(pvalue+minpvaladj), pch=20, main=main, ...))
+    with(subset(res, padj<sigthresh ), points(log2FoldChange, -log10(pvalue+minpvaladj), pch=20, col="red", ...))
+    with(subset(res, abs(log2FoldChange)>lfcthresh), points(log2FoldChange, -log10(pvalue+minpvaladj), pch=20, col="orange", ...))
+    with(subset(res, padj<sigthresh & abs(log2FoldChange)>lfcthresh), points(log2FoldChange, -log10(pvalue+minpvaladj), pch=20, col="green", ...))
+    if (labelsig) {
+      require(calibrate)
+    }
+    legend(legendpos, xjust=1, yjust=1, legend=c(paste("FDR<",sigthresh,sep=""), paste("|LogFC|>",lfcthresh,sep=""), "both"), pch=20, col=c("red","orange","green"))
   }
-  legend(legendpos, xjust=1, yjust=1, legend=c(paste("FDR<",sigthresh,sep=""), paste("|LogFC|>",lfcthresh,sep=""), "both"), pch=20, col=c("red","orange","green"))
+  png(paste("rnaseq_ferroptomics/DifferentialAnalysis/DE_volcano_",celline,"_",contrast,"_", affix, ".png", sep=""), 1200, 1000, pointsize=20)
+  volcanoplot(resdata_annot, lfcthresh=1, sigthresh=0.05, textcx=.8, xlim=c(-10, 10), ylim=c(0,10))
+  dev.off()
 }
-png(paste("rnaseq_ferroptomics/DifferentialAnalysis/DE_volcano_",celline,"_",contrast,".png", sep=""), 1200, 1000, pointsize=20)
-volcanoplot(resdata_annot, lfcthresh=1, sigthresh=0.05, textcx=.8, xlim=c(-10, 10), ylim=c(0,10))
-dev.off()
-
 ```
 
 # Heatmap of top expression results
@@ -380,79 +433,96 @@ dev.off()
 
 ###########SECTION TO BE ADJUSTED#######
 contrast <- "RvsS"
-condition <- colData(dds)$Group
 condition_name <- "Group"
 celline <- "human"
-res <- res_RvsS_lfc
 ###########SECTION TO BE ADJUSTED#######
 
-vsd <- vst(dds)
-vsd_assay <- assay(vsd)
-vsd_assay <- as.data.frame(vsd_assay)
-vsd_assay$Gene <- rownames(vsd_assay)
+for (i in seq_along(dds_deseq_list)) {
+  dds <- dds_deseq_list[[i]]
+  res <- res_RvsS_lfc_list[[i]]
+  affix <- affixes[i]
+  print(affix)
+  
+  vsd <- vst(dds)
+  vsd_assay <- assay(vsd)
+  vsd_assay <- as.data.frame(vsd_assay)
+  vsd_assay$Gene <- rownames(vsd_assay)
+  
+  ## Merge with normalized count data
+  resdata <- merge(as.data.frame(res), vsd_assay, by="row.names", sort=FALSE)
+  names(resdata)[1] <- "Gene"
+  rownames(resdata) <- resdata$Gene
+  resdata <- resdata[-1]
+  
+  #Merge with annotation (genesymbol and geneType)
+  resdata_annot <- merge(as.data.frame(resdata),as.data.frame(annotdata),by="row.names",all.x= TRUE)
+  rownames(resdata_annot) <- resdata_annot$Row.names
+  resdata_annot <- resdata_annot[-1]
+  
+  # Selection on padj <= 0.05
+  res$padj <- ifelse(is.na(res$padj), 1, res$padj)
+  sigGenes <- rownames(res[res$padj <= .05,])
+  
+  resdata_annot <- resdata_annot[resdata_annot$Gene %in% sigGenes,]
+  
+  mat = resdata_annot[ head(order(resdata_annot$padj),50), ] # select the top 50 genes with the lowest padj
+  rownames(mat) <- paste(mat$Gene, mat$name, sep="_")
+  mat$log2FoldChange <- NULL
+  mat$lfcSE <- NULL
+  mat$stat <- NULL
+  mat$pvalue <- NULL
+  mat$baseMean <- NULL
+  mat$padj <- NULL
+  mat$Gene <- NULL
+  mat$name <- NULL
+  mat$type <- NULL
+  mat$description <- NULL
+  
+  mat = mat - rowMeans(mat) # Subtract the row means from each value
+  # Optional, but to make the plot nicer:
+  df = as.data.frame(colData(vsd)[,c("Group")]) # Create a dataframe with a column of the conditions
+  colnames(df) = "Group" # Rename the column header
+  rownames(df) = colnames(mat) # add rownames
+  # and plot the actual heatmap
+  png(paste("rnaseq_ferroptomics/DifferentialAnalysis/genes_heatmap_",celline,"_",contrast,"_", affix, ".png", sep=""), 1200, 1000, pointsize=20)
+  pheatmap(mat, annotation_col=df)
+  dev.off()
+}
+```
+```{r}
 
-## Merge with normalized count data
-resdata <- merge(as.data.frame(res), vsd_assay, by="row.names", sort=FALSE)
-names(resdata)[1] <- "Gene"
-rownames(resdata) <- resdata$Gene
-resdata <- resdata[-1]
+for (i in seq_along(dds_deseq_list)) {
+  dds <- dds_deseq_list[[i]]
+  res <- res_RvsS_lfc_list[[i]]
+  affix <- affixes[i]
+  print(affix)
+  
+  rld <- vst(dds)
+  
+  # make the lists
+  upgenes <- rownames(head(res[ order( res$log2FoldChange ), ], n=20))
+  downgenes <- rownames(head(res[ order( -res$log2FoldChange ), ], n=20))
 
-#Merge with annotation (genesymbol and geneType)
-resdata_annot <- merge(as.data.frame(resdata),as.data.frame(annotdata),by="row.names",all.x= TRUE)
-rownames(resdata_annot) <- resdata_annot$Row.names
-resdata_annot <- resdata_annot[-1]
+  # this gives us the rows we want
+  rows <- match(upgenes, row.names(rld))
+  mat <- assay(rld)[rows,]
+  mat <- mat - rowMeans(mat)
 
-# Selection on padj <= 0.05
-res$padj <- ifelse(is.na(res$padj), 1, res$padj)
-sigGenes <- rownames(res[res$padj <= .05,])
+  # the labels are hard coded at the moment :(
+  df <- as.data.frame(colData(rld)[c(condition_name)])
+  png(paste("rnaseq_ferroptomics/DifferentialAnalysis/top20UP_",celline,"_",contrast,"_", affix, ".png", sep=""))
+  pheatmap(mat, fontsize=5, annotation_col=df, main=paste(affix,"top 20 up genes"))
+  dev.off()
 
-resdata_annot <- resdata_annot[resdata_annot$Gene %in% sigGenes,]
+  # this gives us the rows we want
+  rows <- match(downgenes, row.names(rld))
+  mat <- assay(rld)[rows,]
+  mat <- mat - rowMeans(mat)
 
-mat = resdata_annot[ head(order(resdata_annot$padj),50), ] # select the top 50 genes with the lowest padj
-rownames(mat) <- paste(mat$Gene, mat$name, sep="_")
-mat$log2FoldChange <- NULL
-mat$lfcSE <- NULL
-mat$stat <- NULL
-mat$pvalue <- NULL
-mat$baseMean <- NULL
-mat$padj <- NULL
-mat$Gene <- NULL
-mat$name <- NULL
-mat$type <- NULL
-mat$description <- NULL
-
-mat = mat - rowMeans(mat) # Subtract the row means from each value
-# Optional, but to make the plot nicer:
-df = as.data.frame(colData(vsd)[,c("Group")]) # Create a dataframe with a column of the conditions
-colnames(df) = "Group" # Rename the column header
-rownames(df) = colnames(mat) # add rownames
-# and plot the actual heatmap
-png(paste("rnaseq_ferroptomics/DifferentialAnalysis/genes_heatmap_",celline,"_",contrast,".png", sep=""), 1200, 1000, pointsize=20)
-pheatmap(mat, annotation_col=df)
-dev.off()
-
-plotUpDownSigGenes <- function(results, colNums, rld, title) {
-
-    # make the lists
-    upgenes <- rownames(head(results[ order( results$log2FoldChange ), ], n=20))
-    downgenes <- rownames(head(results[ order( -results$log2FoldChange ), ], n=20))
-
-    # this gives us the rows we want
-    rows <- match(upgenes, row.names(rld))
-    mat <- assay(rld)[rows,colNums]
-    mat <- mat - rowMeans(mat)
-
-    # the labels are hard coded at the moment :(
-    df <- as.data.frame(colData(rld)[c("labelA","labelB")])
-    pheatmap(mat, fontsize=5, annotation_col=df, main=paste(title,"top 20 up genes"))
-
-    # this gives us the rows we want
-    rows <- match(downgenes, row.names(rld))
-    mat <- assay(rld)[rows,colNums]
-    mat <- mat - rowMeans(mat)
-
-    df <- as.data.frame(colData(rld)[c("labelA","labelB")])
-    pheatmap(mat, fontsize=5, annotation_col=df, main=paste(title,"top 20 down genes"))
+  df <- as.data.frame(colData(rld)[c(condition_name)])
+  png(paste("rnaseq_ferroptomics/DifferentialAnalysis/top20DOWN_",celline,"_",contrast,"_", affix, ".png", sep=""))
+  pheatmap(mat, fontsize=5, annotation_col=df, main=paste(affix,"top 20 down genes"))
+  dev.off()
 }
 ```
 
