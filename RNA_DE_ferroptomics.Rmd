@@ -21,7 +21,7 @@ library(ensembldb)
 library(clusterProfiler)
 library(magrittr)
 library(EnrichmentBrowser)
-library('R.utils')
+library(R.utils)
 library(fgsea)
 library(data.table)
 library(WebGestaltR)
@@ -50,7 +50,8 @@ print(colnames(countdata_fc_full))
 
 ```{r}
 sampleTable_exp <- read_csv("rnaseq_ferroptomics/MT_ferroptosis_metadata.csv") %>%
-  mutate("Group" = factor(Group))
+  mutate("Group" = factor(Group)) %>%
+  mutate("gender" = factor(gender))
 
 head(sampleTable_exp)
 print(dim(sampleTable_exp))
@@ -73,7 +74,7 @@ countdata_fc_filt2 <- countdata_fc_filt1 %>%
 countdata_fc_filt3 <- countdata_fc_filt2 %>%
   dplyr::select(-c("IMR21nov_R2", "IMR14nov_R1"))
 
-dds_full <- DESeqDataSetFromMatrix(countdata_fc_full, sampleTable_exp, ~1)
+dds_full <- DESeqDataSetFromMatrix(countdata_fc_full, sampleTable_exp, design = ~ gender + Group)
 dds_full$Group <- relevel(dds_full$Group, "S")
 dds_full <- estimateSizeFactors(dds_full)
 
@@ -183,6 +184,10 @@ png(paste0(dir, "/PCA_filt3.png"), width = 900, height = 900)
 pcaplot(rld_filt3, intgroup=c("Group"), ellipse = FALSE)
 dev.off()
 ```
+```{r}
+# pcaExplorer(dds_full)
+```
+
 
 
 # Two-group comparison
@@ -220,11 +225,11 @@ for (i in seq_along(dds_list)) {
   affix <- affixes[[i]]
   print(affix)
   
-  design(dds) <- ~ Group
+  design(dds) <- ~ gender + Group 
 
   dds_deseq <- DESeq(dds)
   
-  res <- results(dds_deseq, alpha = 0.05)
+  res <- results(dds_deseq, alpha = 0.05, lfcThreshold = 2)
   summary(res)
   
   jpeg(paste0("rnaseq_ferroptomics/DifferentialAnalysis/dispersion_plot_", affix, ".jpeg"), width = 1500, height = 1000)
@@ -246,14 +251,21 @@ for (i in seq_along(dds_deseq_list)) {
   print(affix)
   
   resultsNames(dds)
-  res_RvsS <- results(dds, independentFiltering=TRUE, contrast=c("Group","R","S"), alpha = 0.05) #Last level is the base level
+  res_RvsS <- results(dds, independentFiltering=TRUE, contrast=c("Group","R","S"), alpha = 0.05, lfcThreshold = 2) #Last level is the base level
+  res_RvsS_full <- results(dds, independentFiltering=TRUE, contrast=c("Group","R","S"))
+  
+  sink(paste0("rnaseq_ferroptomics/DifferentialAnalysis/results_summary_", affix, ".txt"))
   summary(res_RvsS)
+  sink()
   
-  res_RvsS_lfc <- lfcShrink(dds, contrast = c("Group", "R", "S"), type = "ashr", lfcThreshold = 0, res = res_RvsS)
+  res_RvsS_lfc <- lfcShrink(dds, contrast = c("Group", "R", "S"), type = "ashr", alpha = 0.05, lfcThreshold = 2, res = res_RvsS)
+  res_RvsS_lfc_full <- lfcShrink(dds, contrast = c("Group", "R", "S"), type = "ashr", res = res_RvsS_full)
   
+  sink(paste0("rnaseq_ferroptomics/DifferentialAnalysis/resultsLFC_summary_", affix, ".txt"))
   summary(res_RvsS_lfc)
+  sink()
   
-  res_RvsS_lfc_list <- c(res_RvsS_lfc_list, res_RvsS_lfc)
+  res_RvsS_lfc_list <- c(res_RvsS_lfc_list, res_RvsS_lfc_full)
 }
 
 ###CONSTRUCT THE SUMMARY TABLE OF ALL PADJ <= 0.05
@@ -423,7 +435,7 @@ for (i in seq_along(resdata_annot_list)) {
     legend(legendpos, xjust=1, yjust=1, legend=c(paste("FDR<",sigthresh,sep=""), paste("|LogFC|>",lfcthresh,sep=""), "both"), pch=20, col=c("red","orange","green"))
   }
   png(paste("rnaseq_ferroptomics/DifferentialAnalysis/DE_volcano_",celline,"_",contrast,"_", affix, ".png", sep=""), 1200, 1000, pointsize=20)
-  volcanoplot(resdata_annot, lfcthresh=1, sigthresh=0.05, textcx=.8, xlim=c(-10, 10), ylim=c(0,10))
+  volcanoplot(resdata_annot, lfcthresh=2, sigthresh=0.05, textcx=.8, xlim=c(-10, 10), ylim=c(0,10))
   dev.off()
 }
 ```
@@ -490,8 +502,8 @@ for (i in seq_along(dds_deseq_list)) {
   dev.off()
 }
 ```
-```{r}
 
+```{r}
 for (i in seq_along(dds_deseq_list)) {
   dds <- dds_deseq_list[[i]]
   res <- res_RvsS_lfc_list[[i]]
@@ -525,6 +537,12 @@ for (i in seq_along(dds_deseq_list)) {
   pheatmap(mat, fontsize=5, annotation_col=df, main=paste(affix,"top 20 down genes"))
   dev.off()
 }
+```
+```{r}
+res_RvsS <- results(dds, independentFiltering=TRUE, contrast=c("Group","R","S"), alpha = 0.05, lfcThreshold = 2)
+res_RvsS_lfc <- lfcShrink(dds, contrast = c("Group", "R", "S"), type = "ashr", alpha = 0.05, lfcThreshold = 2, res = res_RvsS)
+res <- res_RvsS_lfc
+summary(res)
 ```
 
 # Kegg analysis

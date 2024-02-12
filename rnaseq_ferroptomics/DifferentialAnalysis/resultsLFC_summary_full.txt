@@ -1,0 +1,6 @@
+
+out of 43546 with nonzero total read count
+s-value < 0.005
+LFC > 2.00 (up)    : 258, 0.59%
+LFC < -2.00 (down) : 603, 1.4%
+
