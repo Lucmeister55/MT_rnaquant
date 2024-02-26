@@ -229,7 +229,7 @@ for (i in seq_along(dds_list)) {
 
   dds_deseq <- DESeq(dds)
   
-  res <- results(dds_deseq, alpha = 0.05, lfcThreshold = 2)
+  res <- results(dds_deseq, alpha = 0.05)
   summary(res)
   
   jpeg(paste0("rnaseq_ferroptomics/DifferentialAnalysis/dispersion_plot_", affix, ".jpeg"), width = 1500, height = 1000)
