@@ -33,6 +33,8 @@ library(WebGestaltR)
 #dir <- "/data/lvisser/rnaseq_ferroptomics/"
 
 countdata_fc_raw <- read.delim("rnaseq_ferroptomics/outputs/count_matrix/countmatrix.csv")
+countdata_newIMR <- read.delim("rnaseq_ferroptomics/outputs/count_matrix/countmatrix_IMR.csv")
+countdata_fc_raw <- cbind(countdata_fc_raw, subset(countdata_newIMR, select = -c(gene_symbol, Ensembl_ID, length)))
 countdataTPM_fc_raw <- read.delim("rnaseq_ferroptomics/outputs/count_matrix/countmatrix_tpm.csv")
 
 countdata_fc_full <- countdata_fc_raw %>%
@@ -292,6 +294,7 @@ for (i in seq_along(dds_deseq_list)) {
 
 contrast <- "RvsS"
 ```
+
 ## PCA (DGE only)
 
 ```{r}
@@ -603,12 +606,6 @@ for (i in seq_along(dds_deseq_list)) {
   pheatmap(mat, fontsize=5, annotation_col=df, main=paste(affix,"top 20 down genes"))
   dev.off()
 }
-```
-```{r}
-res_RvsS <- results(dds, independentFiltering=TRUE, contrast=c("Group","R","S"), alpha = 0.05, lfcThreshold = 2)
-res_RvsS_lfc <- lfcShrink(dds, contrast = c("Group", "R", "S"), type = "ashr", alpha = 0.05, lfcThreshold = 2, res = res_RvsS)
-res <- res_RvsS_lfc
-summary(res)
 ```
 
 # Kegg analysis

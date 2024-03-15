@@ -1,10 +1,10 @@
 
-out of 43503 with nonzero total read count
+out of 44116 with nonzero total read count
 adjusted p-value < 0.05
-LFC > 0 (up)       : 2157, 5%
-LFC < 0 (down)     : 3367, 7.7%
-outliers [1]       : 165, 0.38%
-low counts [2]     : 15671, 36%
+LFC > 0 (up)       : 2499, 5.7%
+LFC < 0 (down)     : 2799, 6.3%
+outliers [1]       : 68, 0.15%
+low counts [2]     : 15078, 34%
 (mean count < 1)
 [1] see 'cooksCutoff' argument of ?results
 [2] see 'independentFiltering' argument of ?results
