@@ -168,20 +168,40 @@ rld_filt1 <- vst(dds_filt1)
 rld_filt2 <- vst(dds_filt2)
 rld_filt3 <- vst(dds_filt3)
 
-png(paste0(dir, "/PCA_full.png"), width = 900, height = 900)
+## Top 500
+
+png(paste0(dir, "/PCA_full_ntop500.png"), width = 900, height = 900)
 pcaplot(rld_full, intgroup=c("Group"), ellipse = FALSE)
 dev.off()
 
-png(paste0(dir, "/PCA_filt1.png"), width = 900, height = 900)
+png(paste0(dir, "/PCA_filt1_ntop500.png"), width = 900, height = 900)
 pcaplot(rld_filt1, intgroup=c("Group"), ellipse = FALSE)
 dev.off()
 
-png(paste0(dir, "/PCA_filt2.png"), width = 900, height = 900)
+png(paste0(dir, "/PCA_filt2_ntop500.png"), width = 900, height = 900)
 pcaplot(rld_filt2, intgroup=c("Group"), ellipse = FALSE)
 dev.off()
 
-png(paste0(dir, "/PCA_filt3.png"), width = 900, height = 900)
+png(paste0(dir, "/PCA_filt3_ntop500.png"), width = 900, height = 900)
 pcaplot(rld_filt3, intgroup=c("Group"), ellipse = FALSE)
+dev.off()
+
+## Top 10000
+
+png(paste0(dir, "/PCA_full_ntop10000.png"), width = 900, height = 900)
+pcaplot(rld_full, intgroup=c("Group"), ellipse = FALSE, ntop = 10000)
+dev.off()
+
+png(paste0(dir, "/PCA_filt1_ntop10000.png"), width = 900, height = 900)
+pcaplot(rld_filt1, intgroup=c("Group"), ellipse = FALSE, ntop = 10000)
+dev.off()
+
+png(paste0(dir, "/PCA_filt2_ntop10000.png"), width = 900, height = 900)
+pcaplot(rld_filt2, intgroup=c("Group"), ellipse = FALSE, ntop = 10000)
+dev.off()
+
+png(paste0(dir, "/PCA_filt3_ntop10000.png"), width = 900, height = 900)
+pcaplot(rld_filt3, intgroup=c("Group"), ellipse = FALSE, ntop = 10000)
 dev.off()
 ```
 ```{r}
@@ -251,14 +271,14 @@ for (i in seq_along(dds_deseq_list)) {
   print(affix)
   
   resultsNames(dds)
-  res_RvsS <- results(dds, independentFiltering=TRUE, contrast=c("Group","R","S"), alpha = 0.05, lfcThreshold = 2) #Last level is the base level
+  res_RvsS <- results(dds, independentFiltering=TRUE, contrast=c("Group","R","S"), alpha = 0.05) #Last level is the base level
   res_RvsS_full <- results(dds, independentFiltering=TRUE, contrast=c("Group","R","S"))
   
   sink(paste0("rnaseq_ferroptomics/DifferentialAnalysis/results_summary_", affix, ".txt"))
   summary(res_RvsS)
   sink()
   
-  res_RvsS_lfc <- lfcShrink(dds, contrast = c("Group", "R", "S"), type = "ashr", alpha = 0.05, lfcThreshold = 2, res = res_RvsS)
+  res_RvsS_lfc <- lfcShrink(dds, contrast = c("Group", "R", "S"), type = "ashr", alpha = 0.05, res = res_RvsS)
   res_RvsS_lfc_full <- lfcShrink(dds, contrast = c("Group", "R", "S"), type = "ashr", res = res_RvsS_full)
   
   sink(paste0("rnaseq_ferroptomics/DifferentialAnalysis/resultsLFC_summary_", affix, ".txt"))
@@ -272,6 +292,52 @@ for (i in seq_along(dds_deseq_list)) {
 
 contrast <- "RvsS"
 ```
+## PCA (DGE only)
+
+```{r}
+# Create a list to store PCA plots
+pca_plots <- vector("list", length = length(dds_deseq_list))
+
+# Perform PCA and generate plots
+for (i in seq_along(dds_deseq_list)) {
+  dds <- dds_deseq_list[[i]]
+  res <- res_RvsS_lfc_list[[i]] 
+  affix <- affixes[i]
+  print(affix)
+  
+  rld <- vst(dds)
+  
+  dge_genes <- rownames(res)[which(res$padj < 0.05)]
+  
+  # Filter expression data matrices to include only DEGs
+  rld_dge <- rld[dge_genes,]
+  
+  # Perform PCA
+  pca_result <- prcomp(t(assay(rld_dge)))
+  
+  # Store PCA result
+  pca_plots[[i]] <- list(pca_result = pca_result, affix = affix)
+}
+
+# Generate PCA plots
+for (i in seq_along(pca_plots)) {
+  pca_result <- pca_plots[[i]]$pca_result
+  affix <- pca_plots[[i]]$affix
+  
+  png(paste0(dir, paste0("/PCA_", affix, "_dge.png")), width = 900, height = 900)
+  
+  plot(pca_result$x[,1], pca_result$x[,2], 
+       xlab = paste("PC1 (", round(100 * summary(pca_result)$importance[2,1], 1), "%)", sep=""),
+       ylab = paste("PC2 (", round(100 * summary(pca_result)$importance[2,2], 1), "%)", sep=""), 
+       main = paste("PCA of", affix, "DEGs"))
+  
+  # Add labels to points
+  text(pca_result$x[,1], pca_result$x[,2], labels = rownames(pca_result$x), cex=0.7, pos=3)
+  
+  dev.off()
+}
+```
+
 
 Other plotting functions
 ## 5. Plotting: PCA, MA-plot, Volcano, heatmap, etc...
