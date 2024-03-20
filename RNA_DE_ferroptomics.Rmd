@@ -236,7 +236,6 @@ Comparing two types of samples, which differ by a single covariate (here: `Group
 
 Set the comparison type, i.e. indicate which column in the colData table contains the group information
 
-
 ```{r}
 dir.create("rnaseq_ferroptomics/DifferentialAnalysis")
 
