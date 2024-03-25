@@ -1,0 +1,1006 @@
+# RNA analysis with DESeq2
+
+```{r message=FALSE}
+library(dplyr)
+library(dbplyr)
+library(readr)
+library(DESeq2)
+library(pheatmap)
+library(rje)
+library(ashr)
+library(ggplot2)
+library(pcaExplorer)
+library(tibble)
+library(RColorBrewer)
+library(AnnotationDbi)
+library(AnnotationHub)
+library(org.Hs.eg.db)
+library(gplots)
+library(gage)
+library(ensembldb)
+library(clusterProfiler)
+library(magrittr)
+library(EnrichmentBrowser)
+library(R.utils)
+library(fgsea)
+library(data.table)
+library(WebGestaltR)
+```
+
+## 1. Read count table
+
+```{r}
+#dir <- "/data/lvisser/rnaseq_ferroptomics/"
+
+countdata_fc_raw <- read.delim("rnaseq_ferroptomics/outputs/count_matrix/countmatrix.csv")
+countdata_newIMR <- read.delim("rnaseq_ferroptomics/outputs/count_matrix/countmatrix_IMR.csv")
+countdata_fc_raw <- cbind(countdata_fc_raw, subset(countdata_newIMR, select = -c(gene_symbol, Ensembl_ID, length)))
+countdataTPM_fc_raw <- read.delim("rnaseq_ferroptomics/outputs/count_matrix/countmatrix_tpm.csv")
+
+countdata_fc_full <- countdata_fc_raw %>%
+  dplyr::select(-c("gene_symbol", "Ensembl_ID", "length"))
+
+
+rownames(countdata_fc_full) <- countdata_fc_raw$Ensembl_ID
+
+print(colSums(is.na(countdata_fc_full)))
+print(dim(countdata_fc_full))
+print(colnames(countdata_fc_full))
+```
+
+## 2. Read sample table
+
+```{r}
+sampleTable_exp <- read_csv("rnaseq_ferroptomics/MT_ferroptosis_metadata.csv") %>%
+  mutate("Group" = factor(Group)) %>%
+  mutate("gender" = factor(gender))
+
+head(sampleTable_exp)
+print(dim(sampleTable_exp))
+```
+
+# Full DESeq data object
+
+```{r}
+new_ids <- sampleTable_exp$sample_id_adj[match(colnames(countdata_fc_full), sampleTable_exp$run_id)]
+colnames(countdata_fc_full) <- new_ids
+countdata_fc_full <- countdata_fc_full[, sampleTable_exp$sample_id_adj]
+head(countdata_fc_full)
+
+countdata_fc_filt1 <- countdata_fc_full %>%
+  dplyr::select(-c("SHY14nov_R3_2"))
+
+countdata_fc_filt2 <- countdata_fc_filt1 %>%
+  dplyr::select(-c("IMR15dec_R4", "IMR12dec_R3"))
+
+countdata_fc_filt3 <- countdata_fc_filt2 %>%
+  dplyr::select(-c("IMR21nov_R2", "IMR14nov_R1"))
+
+dds_full <- DESeqDataSetFromMatrix(countdata_fc_full, sampleTable_exp, design = ~ gender + Group)
+dds_full$Group <- relevel(dds_full$Group, "S")
+dds_full <- estimateSizeFactors(dds_full)
+
+dds_filt1 <- dds_full[, !(colData(dds_full)$sample_id_adj %in% c("SHY14nov_R3_2"))]
+dds_filt2 <- dds_filt1[, !(colData(dds_filt1)$sample_id_adj %in% c("IMR15dec_R4", "IMR12dec_R3"))]
+dds_filt3 <- dds_filt2[, !(colData(dds_filt2)$sample_id_adj %in% c("IMR21nov_R2", "IMR14nov_R1"))]
+```
+
+# Sample distances
+
+Calculate a *distance matrix*, quantifying dissimilarity of the samples
+
+```{r}
+sample_distance_heatmap <- function(dds, dir, affix) {
+  #Used different transformations
+  distmat <- as.matrix(dist(t(log2(1 + counts(dds)))))
+  distmat_norm <- as.matrix(dist(t(log2(1 + counts(dds, normalized=TRUE)))))
+  distmat_vst <- as.matrix(dist(t(assay(vst(dds))))) # Can only be performed if the DE is already performed
+
+  jpeg(paste0(dir, "/Distance_matrix_as_heatmap_normalized_", affix, ".jpeg"), width = 750, height = 750)
+  pheatmap(distmat_norm)
+  dev.off()
+  
+  jpeg(paste0(dir, "/Distance_matrix_as_heatmap_vst_", affix, ".jpeg"), width = 750, height = 750)
+  pheatmap(distmat_vst)
+  dev.off()
+  
+  # Switch off clustering
+  
+  jpeg(paste0(dir, "/Distance_matrix_noclus_as_heatmap_normalized_", affix, ".jpeg"), width = 750, height = 750)
+  pheatmap(distmat_norm,cluster_rows=FALSE, cluster_cols=FALSE)
+  dev.off()
+  
+  jpeg(paste0(dir, "/Distance_matrix_noclus_as_heatmap_vst_", affix, ".jpeg"), width = 750, height = 750)
+  pheatmap(distmat_vst,cluster_rows=FALSE, cluster_cols=FALSE)
+  dev.off()
+}
+```
+
+Visualize the distance matrix as heatmap
+
+```{r fig.width=12, fig.height=12}
+affixes <- c("full", "filt1", "filt2", "filt3")
+dds_list <- list(dds_full, dds_filt1, dds_filt2, dds_filt3)
+dir <- "rnaseq_ferroptomics/DataExploration"
+dir.create(dir)
+
+for (i in seq_along(dds_list)) {
+  sample_distance_heatmap(dds_list[[i]], dir, affixes[i])
+}
+```
+
+# MATRIX OF SCATTERPLOTS
+
+```{r}
+
+# panel.smooth function is built in.
+# panel.cor puts correlation in upper panels, size proportional to correlation
+panel.cor <- function(x, y, digits=3, prefix="", cex.cor, ...)
+{
+    usr <- par("usr"); on.exit(par(usr))
+    par(usr = c(0, 1, 0, 1))
+    r <- abs(cor(x, y,use=c("complete.obs")))
+    txt <- format(c(r, 0.123456789), digits=digits)[1]
+    txt <- paste(prefix, txt, sep="")
+    if(missing(cex.cor)) cex.cor <- 0.8/strwidth(txt)
+    text(0.5, 0.5, txt, cex = cex.cor * r)
+}
+# Plot: add loess smoother in lower and correlation in upper
+#Add +columnA+columnB to add matrix dimensions
+
+# jpeg("rnaseq_ferroptomics/DataExploration/RNAseq_scatterplot_matrix_bw.jpeg", width = 1500, height = 1500)
+# pairs(log10(countdata_fc+1), lower.panel=panel.smooth, upper.panel=panel.cor,main="Scatterplot Matrix RNAseq")
+# dev.off()
+# 
+# jpeg("rnaseq_ferroptomics/DataExploration/RNAseq_Scatterplot_matrix_color.jpeg", width = 750, height = 750)
+# pairs(log10(countdata_fc+1), 
+#      lower.panel = function(...) smoothScatter(..., colramp = colorRampPalette(c(rev(brewer.pal(5,"RdYlBu")))), add = TRUE, nrpoints=0), upper.panel=panel.cor, pch=20, main="Scatterplot Matrix RNAseq")
+# dev.off()
+
+```
+
+# PCA plot
+
+```{r}
+dir <- "rnaseq_ferroptomics/DataExploration"
+dir.create(dir)
+
+rld_full <- vst(dds_full)
+rld_filt1 <- vst(dds_filt1)
+rld_filt2 <- vst(dds_filt2)
+rld_filt3 <- vst(dds_filt3)
+
+## Top 500
+
+png(paste0(dir, "/PCA_full_ntop500.png"), width = 900, height = 900)
+pcaplot(rld_full, intgroup=c("Group"), ellipse = FALSE)
+dev.off()
+
+png(paste0(dir, "/PCA_filt1_ntop500.png"), width = 900, height = 900)
+pcaplot(rld_filt1, intgroup=c("Group"), ellipse = FALSE)
+dev.off()
+
+png(paste0(dir, "/PCA_filt2_ntop500.png"), width = 900, height = 900)
+pcaplot(rld_filt2, intgroup=c("Group"), ellipse = FALSE)
+dev.off()
+
+png(paste0(dir, "/PCA_filt3_ntop500.png"), width = 900, height = 900)
+pcaplot(rld_filt3, intgroup=c("Group"), ellipse = FALSE)
+dev.off()
+
+## Top 10000
+
+png(paste0(dir, "/PCA_full_ntop10000.png"), width = 900, height = 900)
+pcaplot(rld_full, intgroup=c("Group"), ellipse = FALSE, ntop = 10000)
+dev.off()
+
+png(paste0(dir, "/PCA_filt1_ntop10000.png"), width = 900, height = 900)
+pcaplot(rld_filt1, intgroup=c("Group"), ellipse = FALSE, ntop = 10000)
+dev.off()
+
+png(paste0(dir, "/PCA_filt2_ntop10000.png"), width = 900, height = 900)
+pcaplot(rld_filt2, intgroup=c("Group"), ellipse = FALSE, ntop = 10000)
+dev.off()
+
+png(paste0(dir, "/PCA_filt3_ntop10000.png"), width = 900, height = 900)
+pcaplot(rld_filt3, intgroup=c("Group"), ellipse = FALSE, ntop = 10000)
+dev.off()
+```
+```{r}
+# pcaExplorer(dds_full)
+```
+
+
+
+# Two-group comparison
+
+For our setup, we want to compare R and S
+
+## 1. Size factors and metadata
+
+```{r}
+
+# Calculate sizeFactors (should be 1)
+
+for (i in seq_along(dds_list)) {
+  dds <- dds_list[[i]]
+  print(affixes[i])
+  print(sizeFactors(dds))
+  # print(colData(dds))
+}
+```
+
+## 2. Set design
+
+Comparing two types of samples, which differ by a single covariate (here: `Group`), ("a two-group comparison") is straight-forward.
+
+Set the comparison type, i.e. indicate which column in the colData table contains the group information
+
+```{r}
+dir.create("rnaseq_ferroptomics/DifferentialAnalysis")
+
+dds_deseq_list = list()
+
+for (i in seq_along(dds_list)) {
+  dds <- dds_list[[i]]
+  affix <- affixes[[i]]
+  print(affix)
+  
+  design(dds) <- ~ gender + Group 
+
+  dds_deseq <- DESeq(dds)
+  
+  res <- results(dds_deseq, alpha = 0.05)
+  summary(res)
+  
+  jpeg(paste0("rnaseq_ferroptomics/DifferentialAnalysis/dispersion_plot_", affix, ".jpeg"), width = 1500, height = 1000)
+  plotDispEsts(dds_deseq)
+  dev.off()
+  
+  dds_deseq_list <- c(dds_deseq_list, dds_deseq)
+}
+```
+
+## 3. Get the results
+
+```{r}
+res_RvsS_lfc_list <- list()
+
+for (i in seq_along(dds_deseq_list)) {
+  dds <- dds_deseq_list[[i]]
+  affix <- affixes[i]
+  print(affix)
+  
+  resultsNames(dds)
+  res_RvsS <- results(dds, independentFiltering=TRUE, contrast=c("Group","R","S"), alpha = 0.05) #Last level is the base level
+  res_RvsS_full <- results(dds, independentFiltering=TRUE, contrast=c("Group","R","S"))
+  
+  sink(paste0("rnaseq_ferroptomics/DifferentialAnalysis/results_summary_", affix, ".txt"))
+  summary(res_RvsS)
+  sink()
+  
+  res_RvsS_lfc <- lfcShrink(dds, contrast = c("Group", "R", "S"), type = "ashr", alpha = 0.05, res = res_RvsS)
+  res_RvsS_lfc_full <- lfcShrink(dds, contrast = c("Group", "R", "S"), type = "ashr", res = res_RvsS_full)
+  
+  sink(paste0("rnaseq_ferroptomics/DifferentialAnalysis/resultsLFC_summary_", affix, ".txt"))
+  summary(res_RvsS_lfc)
+  sink()
+  
+  res_RvsS_lfc_list <- c(res_RvsS_lfc_list, res_RvsS_lfc_full)
+}
+
+###CONSTRUCT THE SUMMARY TABLE OF ALL PADJ <= 0.05
+
+contrast <- "RvsS"
+```
+
+## PCA (DGE only)
+
+```{r}
+# Create a list to store PCA plots
+pca_plots <- vector("list", length = length(dds_deseq_list))
+
+# Perform PCA and generate plots
+for (i in seq_along(dds_deseq_list)) {
+  dds <- dds_deseq_list[[i]]
+  res <- res_RvsS_lfc_list[[i]] 
+  affix <- affixes[i]
+  print(affix)
+  
+  rld <- vst(dds)
+  
+  dge_genes <- rownames(res)[which(res$padj < 0.05)]
+  
+  # Filter expression data matrices to include only DEGs
+  rld_dge <- rld[dge_genes,]
+  
+  # Perform PCA
+  pca_result <- prcomp(t(assay(rld_dge)))
+  
+  # Store PCA result
+  pca_plots[[i]] <- list(pca_result = pca_result, affix = affix)
+}
+
+# Generate PCA plots
+for (i in seq_along(pca_plots)) {
+  pca_result <- pca_plots[[i]]$pca_result
+  affix <- pca_plots[[i]]$affix
+  
+  png(paste0(dir, paste0("/PCA_", affix, "_dge.png")), width = 900, height = 900)
+  
+  plot(pca_result$x[,1], pca_result$x[,2], 
+       xlab = paste("PC1 (", round(100 * summary(pca_result)$importance[2,1], 1), "%)", sep=""),
+       ylab = paste("PC2 (", round(100 * summary(pca_result)$importance[2,2], 1), "%)", sep=""), 
+       main = paste("PCA of", affix, "DEGs"))
+  
+  # Add labels to points
+  text(pca_result$x[,1], pca_result$x[,2], labels = rownames(pca_result$x), cex=0.7, pos=3)
+  
+  dev.off()
+}
+```
+
+
+Other plotting functions
+## 5. Plotting: PCA, MA-plot, Volcano, heatmap, etc...
+
+```{r}
+# Set generic dds and res, condition, resdata and resdata_annot
+
+###########SECTION TO BE ADJUSTED#######
+contrast <- "RvsS"
+condition_name <- "Group"
+celline <- "human"
+###########SECTION TO BE ADJUSTED#######
+
+resdata_list <- list()
+
+for (i in seq_along(dds_deseq_list)) {
+  res <- res_RvsS_lfc_list[[i]]
+  dds <- dds_deseq_list[[i]]
+  affix <- affixes[i]
+  print(affix)
+  
+  resdata <- merge(as.data.frame(res), as.data.frame(counts(dds, normalized=TRUE)), by="row.names", sort=FALSE)
+
+  names(resdata)[1] <- "Gene"
+  rownames(resdata) <- resdata$Gene
+  resdata <- resdata[-1]
+  head(resdata)
+  
+  resdata_list <- c(resdata_list, list(resdata))
+}
+```
+
+
+```{r}
+annotdata <- read.table("rnaseq_ferroptomics/mart_export.txt",sep = '\t', header=TRUE)
+colnames(annotdata) <- c('ensg','name','type','description')
+
+#Check for non-unique ensg and remove duplicates if necessary
+n_occur <- data.frame(table(annotdata$ensg))
+annotdata[annotdata$ensg %in% n_occur$Var1[n_occur$Freq == 1],]
+
+# Manually erase from annotation file where necessary
+
+rownames(annotdata) <- annotdata$ensg
+annotdata <- annotdata[-1]
+head(annotdata)
+
+resdata_annot_list <- list()
+
+for (i in seq_along(resdata_list)) {
+  resdata <- resdata_list[[i]]
+  affix <- affixes[i]
+  print(affix)
+  
+  resdata_annot <- merge(as.data.frame(resdata),as.data.frame(annotdata),by="row.names",all.x= TRUE)
+  rownames(resdata_annot) <- resdata_annot$Row.names
+  resdata_annot <- resdata_annot[-1]
+  
+  resdata_annot_list <- c(resdata_annot_list, list(resdata_annot))
+}
+```
+
+
+```{r}
+# Regularized log transformation for clustering/heatmaps, etc
+
+rld_list <- list()
+
+for (i in seq_along(dds_deseq_list)) {
+  dds <- dds_deseq_list[[i]]
+  affix <- affixes[i]
+  print(affix)
+  
+  rld <- vst(dds)
+  head(assay(rld))
+  
+  png(paste0("rnaseq_ferroptomics/DifferentialAnalysis/rld_hist_", affix, ".png"))
+  hist(assay(rld))
+  dev.off()
+  
+  rld_list <- c(rld_list, rld)
+}
+```
+
+
+```{r}
+condition_list <- list()
+
+for (i in seq_along(dds_deseq_list)) {
+  dds <- dds_deseq_list[[i]]
+  rld <- rld_list[[i]]
+  affix <- affixes[i]
+  print(affix)
+  
+  condition <- colData(dds)$Group
+  
+  mycols <- brewer.pal(8, "Dark2")[1:length(unique(condition))]
+
+  # Sample distance heatmap
+  
+  sampleDists <- as.matrix(dist(t(assay(rld))))
+  
+  png(paste0("rnaseq_ferroptomics/DifferentialAnalysis/heatmap_sampdist_", affix, ".png"))
+  heatmap.2(as.matrix(sampleDists), key=F, trace="none",
+            col=colorpanel(100, "black", "white"),
+            ColSideColors=mycols[condition], RowSideColors=mycols[condition],
+            margin=c(20, 20), main="Sample Distance Matrix")
+  dev.off()
+  
+  condition_list <- list(condition_list, condition)
+}
+```
+
+
+```{r}
+for (i in seq_along(resdata_annot_list)) {
+  resdata_annot <- resdata_annot_list[[i]]
+  res <- res_RvsS_lfc_list[[i]]
+  affix <- affixes[i]
+  print(affix)
+  
+  DE_file_name <- paste("rnaseq_ferroptomics/DifferentialAnalysis/DE_results_",celline,"_",contrast,"_", affix,".csv", sep="" )
+
+  ## Order by adjusted p-value
+  resdata_annot <- resdata_annot[order(resdata_annot$padj), ]
+  
+  ## Write results
+  write.csv(resdata_annot, DE_file_name)
+  
+  ## Examine plot of p-values
+  png(paste("rnaseq_ferroptomics/DifferentialAnalysis/DE_pvalplot_",celline,"_",contrast,"_", affix, ".png", sep=""), 1500, 1000, pointsize=20)
+  hist(resdata_annot$pvalue, breaks=50, col="grey")
+  dev.off()
+  
+  ## MA-plot
+  
+  maplot <- function (res, thresh=0.05, labelsig=TRUE, textcx=1, ...) {
+  with(res, plot(baseMean, log2FoldChange, pch=20, cex=.5, log="x", ...))
+  with(subset(res, padj<thresh), points(baseMean, log2FoldChange, col="red", pch=20, cex=0.5))
+  if (labelsig) {
+    require(calibrate)
+    }
+  }
+  
+  png(paste("rnaseq_ferroptomics/DifferentialAnalysis/DE_MAplot_",celline,"_",contrast,"_", affix, ".png", sep=""), 1500, 1000, pointsize=20)
+  maplot(resdata_annot, main="MA Plot", ylim=c(-10,10))
+  dev.off()
+  
+  resdata_annot_notnull <- resdata_annot %>% dplyr::filter(padj !=0)
+  minpvaladj <- min(resdata_annot_notnull$padj, na.rm = TRUE)
+  
+  ## Volcano plot with "significant" genes labeled
+  volcanoplot <- function (res, lfcthresh=2, sigthresh=0.05, main="Volcano Plot", legendpos="bottomleft", labelsig=TRUE, textcx=1, ...) {
+    with(res, plot(log2FoldChange, -log10(pvalue+minpvaladj), pch=20, main=main, ...))
+    with(subset(res, padj<sigthresh ), points(log2FoldChange, -log10(pvalue+minpvaladj), pch=20, col="red", ...))
+    with(subset(res, abs(log2FoldChange)>lfcthresh), points(log2FoldChange, -log10(pvalue+minpvaladj), pch=20, col="orange", ...))
+    with(subset(res, padj<sigthresh & abs(log2FoldChange)>lfcthresh), points(log2FoldChange, -log10(pvalue+minpvaladj), pch=20, col="green", ...))
+    if (labelsig) {
+      require(calibrate)
+    }
+    legend(legendpos, xjust=1, yjust=1, legend=c(paste("FDR<",sigthresh,sep=""), paste("|LogFC|>",lfcthresh,sep=""), "both"), pch=20, col=c("red","orange","green"))
+  }
+  png(paste("rnaseq_ferroptomics/DifferentialAnalysis/DE_volcano_",celline,"_",contrast,"_", affix, ".png", sep=""), 1200, 1000, pointsize=20)
+  volcanoplot(resdata_annot, lfcthresh=2, sigthresh=0.05, textcx=.8, xlim=c(-10, 10), ylim=c(0,10))
+  dev.off()
+}
+```
+
+# Heatmap of top expression results
+
+```{r}
+
+###########SECTION TO BE ADJUSTED#######
+contrast <- "RvsS"
+condition_name <- "Group"
+celline <- "human"
+###########SECTION TO BE ADJUSTED#######
+
+for (i in seq_along(dds_deseq_list)) {
+  dds <- dds_deseq_list[[i]]
+  res <- res_RvsS_lfc_list[[i]]
+  affix <- affixes[i]
+  print(affix)
+  
+  vsd <- vst(dds)
+  vsd_assay <- assay(vsd)
+  vsd_assay <- as.data.frame(vsd_assay)
+  vsd_assay$Gene <- rownames(vsd_assay)
+  
+  ## Merge with normalized count data
+  resdata <- merge(as.data.frame(res), vsd_assay, by="row.names", sort=FALSE)
+  names(resdata)[1] <- "Gene"
+  rownames(resdata) <- resdata$Gene
+  resdata <- resdata[-1]
+  
+  #Merge with annotation (genesymbol and geneType)
+  resdata_annot <- merge(as.data.frame(resdata),as.data.frame(annotdata),by="row.names",all.x= TRUE)
+  rownames(resdata_annot) <- resdata_annot$Row.names
+  resdata_annot <- resdata_annot[-1]
+  
+  # Selection on padj <= 0.05
+  res$padj <- ifelse(is.na(res$padj), 1, res$padj)
+  sigGenes <- rownames(res[res$padj <= .05,])
+  
+  resdata_annot <- resdata_annot[resdata_annot$Gene %in% sigGenes,]
+  
+  mat = resdata_annot[ head(order(resdata_annot$padj),50), ] # select the top 50 genes with the lowest padj
+  rownames(mat) <- paste(mat$Gene, mat$name, sep="_")
+  mat$log2FoldChange <- NULL
+  mat$lfcSE <- NULL
+  mat$stat <- NULL
+  mat$pvalue <- NULL
+  mat$baseMean <- NULL
+  mat$padj <- NULL
+  mat$Gene <- NULL
+  mat$name <- NULL
+  mat$type <- NULL
+  mat$description <- NULL
+  
+  mat = mat - rowMeans(mat) # Subtract the row means from each value
+  # Optional, but to make the plot nicer:
+  df = as.data.frame(colData(vsd)[,c("Group")]) # Create a dataframe with a column of the conditions
+  colnames(df) = "Group" # Rename the column header
+  rownames(df) = colnames(mat) # add rownames
+  # and plot the actual heatmap
+  png(paste("rnaseq_ferroptomics/DifferentialAnalysis/genes_heatmap_",celline,"_",contrast,"_", affix, ".png", sep=""), 1200, 1000, pointsize=20)
+  pheatmap(mat, annotation_col=df)
+  dev.off()
+}
+```
+
+```{r}
+for (i in seq_along(dds_deseq_list)) {
+  dds <- dds_deseq_list[[i]]
+  res <- res_RvsS_lfc_list[[i]]
+  affix <- affixes[i]
+  print(affix)
+  
+  rld <- vst(dds)
+  
+  # make the lists
+  upgenes <- rownames(head(res[ order( res$log2FoldChange ), ], n=20))
+  downgenes <- rownames(head(res[ order( -res$log2FoldChange ), ], n=20))
+
+  # this gives us the rows we want
+  rows <- match(upgenes, row.names(rld))
+  mat <- assay(rld)[rows,]
+  mat <- mat - rowMeans(mat)
+
+  # the labels are hard coded at the moment :(
+  df <- as.data.frame(colData(rld)[c(condition_name)])
+  png(paste("rnaseq_ferroptomics/DifferentialAnalysis/top20UP_",celline,"_",contrast,"_", affix, ".png", sep=""))
+  pheatmap(mat, fontsize=5, annotation_col=df, main=paste(affix,"top 20 up genes"))
+  dev.off()
+
+  # this gives us the rows we want
+  rows <- match(downgenes, row.names(rld))
+  mat <- assay(rld)[rows,]
+  mat <- mat - rowMeans(mat)
+
+  df <- as.data.frame(colData(rld)[c(condition_name)])
+  png(paste("rnaseq_ferroptomics/DifferentialAnalysis/top20DOWN_",celline,"_",contrast,"_", affix, ".png", sep=""))
+  pheatmap(mat, fontsize=5, annotation_col=df, main=paste(affix,"top 20 down genes"))
+  dev.off()
+}
+```
+
+# Kegg analysis
+
+```{r setup_go_kegg, echo=FALSE, message=FALSE, warning=FALSE}
+#Gene set analysis vs. gene set enrichment analysis
+
+#The two predominantly used enrichment methods are:
+
+#Overrepresentation analysis (ORA), testing whether a gene set contains disproportional many genes of significant expression change, based on the procedure outlined in the first section
+#Gene set enrichment analysis (GSEA), testing whether genes of a gene set accumulate at the top or bottom of the full gene vector ordered by direction and magnitude of expression change Subramanian et al., 2005
+
+dir.create("rnaseq_ferroptomics/KEGG")
+
+search_kegg_organism(str = "human", by= "common_name")
+
+ah <- AnnotationHub()
+ahDb <- query(ah, pattern = c("homo sapiens", "EnsDb", 	105))
+relevant_idx <- which(base::grepl(pattern = 105, x = ahDb$title ))
+hsa_db <- ahDb[[relevant_idx]]
+rm(ahDb); rm(ah)
+
+# Get kegg pathways
+hsa_gs <- getGenesets(org = "hsa", db = "kegg", cache = FALSE, go.mode = "biomart") 
+# get GO annotation
+hsa_go <-getGenesets(org = "hsa", db = "go", cache = FALSE) 
+
+
+resDE_GE <- as.data.frame(res)
+resDE_GE$gene_id <- rownames(res)
+resDE_GE  <- resDE_GE %>% 
+             mutate( abs_log2FoldChange =  abs(resDE_GE$log2FoldChange)) %>%               
+             arrange(desc(abs_log2FoldChange)) %>% 
+             dplyr::filter(padj <= 10^-2)
+
+resDE_GE <- resDE_GE[complete.cases(resDE_GE[ , 5:6]),]
+resDE_GE$entrez = mapIds(hsa_db,
+                      keys=as.character(resDE_GE$gene_id),
+                      column="ENTREZID",
+                      keytype="GENEID",
+                      multiVals="first")
+
+resDE_GE$symbol = mapIds(hsa_db,
+                      keys=as.character(resDE_GE$gene_id),
+                      column="SYMBOL",
+                      keytype="GENEID",
+                      multiVals="first")
+
+#Necessary for the GAGE run input variables
+foldchanges = resDE_GE$log2FoldChange
+names(foldchanges) = resDE_GE$entrez
+
+write.csv(resDE_GE, file="rnaseq_ferroptomics/KEGG/DE_GE.csv")
+```
+
+
+```{r}
+keggs_same <- gage(exprs = foldchanges, gsets = hsa_gs, ref = NULL, samp = NULL, same.dir = FALSE)
+print('Pathways analysis result')
+print('Top 10 kegg pathway')
+print(head(data.frame(keggs_same$greater,10)))
+```
+
+
+```{r}
+print('Top 10 GO term')
+go_same <- gage(exprs = foldchanges, gsets = hsa_go, ref = NULL, samp = NULL, same.dir = FALSE)
+print(head(data.frame(go_same$greater,10)))
+```
+
+# fsgea analysis (GSEA for pathway and Gene Ontology)
+
+```{r}
+
+#Using fgsea toolkit
+
+#Get data from https://data.broadinstitute.org/gsea-msigdb/msigdb/release/7.1/
+#INFO on https://stephenturner.github.io/deseq-to-fgsea/
+# http://bioconductor.org/packages/release/bioc/html/fgsea.html
+# and https://www.gsea-msigdb.org/gsea/msigdb/collections.jsp#C2
+# https://www.biorxiv.org/content/10.1101/060012v1
+
+#Gene set analysis vs. gene set enrichment analysis
+#The two predominantly used enrichment methods are:
+
+#Overrepresentation analysis (ORA), testing whether a gene set contains disproportional many genes of significant expression change, based on the procedure outlined in the first section
+#Gene set enrichment analysis (GSEA), testing whether genes of a gene set accumulate at the top or bottom of the full gene vector ordered by direction and magnitude of expression change Subramanian et al., 2005
+
+
+######Set specific result (see table above) to res and process
+
+# Get extra ID information => Gene SYMBOL
+
+dir.create("rnaseq_ferroptomics/fsgea")
+
+search_kegg_organism(str = "human", by= "common_name")
+
+ah <- AnnotationHub()
+ahDb <- query(ah, pattern = c("homo sapiens", "EnsDb", 	105))     
+relevant_idx <- which(base::grepl(pattern = 105, x = ahDb$title ))
+hsa_db <- ahDb[[relevant_idx]]
+rm(ahDb); rm(ah)
+
+
+resDE_GE <- as.data.frame(res)
+resDE_GE$gene_id <- rownames(res)
+
+write.csv(resDE_GE, file="rnaseq_ferroptomics/DifferentialAnalysis/DE_GE.csv")
+
+#Add the gene symbol annotation
+resDE_GE$symbol = mapIds(hsa_db,
+                      keys=as.character(resDE_GE$gene_id),
+                      column="SYMBOL",
+                      keytype="GENEID",
+                      multiVals="first")
+
+# Only top 2000 expressed genes are taken into account (otherwise the GSEA ranking has too many elements with equal stats (because of low expression), messing up the ranking))
+res2 <- resDE_GE %>% 
+  top_n(2000, baseMean) %>%
+  dplyr::select(symbol, baseMean) %>%
+  na.omit() %>% 
+  distinct() %>% 
+  group_by(symbol) %>% 
+  summarize(stat=mean(baseMean))
+res2
+
+ranks <- deframe(res2)
+head(ranks, 20)
+
+### PATHWAY ANALYSIS - KEGG
+fgseaRes <- fgsea(pathways=gmtPathways("rnaseq_ferroptomics/fsgea/c2.cp.kegg.v7.1.symbols.gmt"), ranks) %>% 
+  as_tibble() %>% 
+  arrange(padj)
+
+fgseaResTidy <- fgseaRes %>%
+  as_tibble() %>%
+  dplyr::filter(padj <= 0.25) %>%
+  arrange(desc(abs(NES)))
+
+fwrite(fgseaResTidy, file=paste("rnaseq_ferroptomics/fsgea/GSEA_PATHWAY_KEGG_", celline,"_", contrast, ".csv", sep="" ), sep=",", sep2=c("", " ", ""))
+
+
+### PATHWAY ANALYSIS
+fgseaRes <- fgsea(pathways=gmtPathways("rnaseq_ferroptomics/fsgea/c2.cp.v7.1.symbols.gmt"), ranks) %>% 
+  as_tibble() %>% 
+  arrange(padj)
+  
+fgseaResTidy <- fgseaRes %>%
+  as_tibble() %>%
+  dplyr::filter(padj <= 0.25) %>%
+  arrange(desc(abs(NES)))
+
+fwrite(fgseaResTidy, file=paste("rnaseq_ferroptomics/fsgea/GSEA_PATHWAY_", celline,"_", contrast, ".csv", sep="" ), sep=",", sep2=c("", " ", ""))
+
+ 
+### GO ANALYSIS
+#BIOLOGICAL PROCESS
+fgseaRes <- fgsea(pathways=gmtPathways("rnaseq_ferroptomics/fsgea/c5.bp.v7.1.symbols.gmt"), ranks) 
+
+fgseaResTidy <- fgseaRes %>%
+  as_tibble() %>%
+  dplyr::filter(padj <= 0.25) %>%
+  arrange(desc(abs(NES)))
+
+fwrite(fgseaResTidy, file=paste("rnaseq_ferroptomics/fsgea/GSEA_GO_BP_", celline,"_", contrast, ".csv", sep="" ), sep=",", sep2=c("", " ", ""))
+ #write.csv(fgseaResTidySel, file=paste("GSEA_GO_BP_", celline,"_", contrast, ".csv", sep="" ))
+
+ #MOLECULAR FUNCTION
+ fgseaRes <- fgsea(pathways=gmtPathways("rnaseq_ferroptomics/fsgea/c5.mf.v7.1.symbols.gmt"), ranks) 
+
+fgseaResTidy <- fgseaRes %>%
+  as_tibble() %>%
+  dplyr::filter(padj <= 0.25) %>%
+  arrange(desc(abs(NES)))
+fwrite(fgseaResTidy, file=paste("rnaseq_ferroptomics/fsgea/GSEA_GO_MF_", celline,"_", contrast, ".csv", sep="" ), sep=",", sep2=c("", " ", ""))
+ 
+#CELLULAR COMPONENT
+ fgseaRes <- fgsea(pathways=gmtPathways("rnaseq_ferroptomics/fsgea/c5.cc.v7.1.symbols.gmt"), ranks) 
+
+fgseaResTidy <- fgseaRes %>%
+  as_tibble() %>%
+  dplyr::filter(padj <= 0.25) %>%
+  arrange(desc(abs(NES)))
+
+
+fwrite(fgseaResTidy, file=paste("rnaseq_ferroptomics/fsgea/GSEA_GO_CC_", celline,"_", contrast, ".csv", sep="" ), sep=",", sep2=c("", " ", ""))
+```
+
+# WebGestalt  (ORA, Over-representation Analysis)
+
+```{r}
+#Check available genesets
+listGeneSet("hsapiens")
+
+dir <- "rnaseq_ferroptomics/WebGestalt_ORA/"
+dir.create(dir)
+
+############################################
+#Get the diff_expression results in genelist
+############################################
+
+#Prepare Annotation hub
+ah <- AnnotationHub()
+ahDb <- query(ah, pattern = c("Homo sapiens", "EnsDb", 	105))     
+relevant_idx <- which(base::grepl(pattern = 105, x = ahDb$title ))
+hsa_db <- ahDb[[relevant_idx]]
+rm(ahDb); rm(ah)
+
+#Filter DE results based on padj and abs(lo2FoldChange)
+resDE_GE <- as.data.frame(res)
+resDE_GE$gene_id <- rownames(res)
+resDE_GE  <- resDE_GE %>% 
+             mutate( abs_log2foldChange =  abs(resDE_GE$log2FoldChange)) %>%               
+             arrange(desc(abs_log2foldChange)) %>% 
+             dplyr::filter(padj <= 0.05)
+
+#Fetch Entrez ID
+resDE_GE <- resDE_GE[complete.cases(resDE_GE[ , 5:6]),]
+resDE_GE$symbol = mapIds(hsa_db,
+                  keys=as.character(resDE_GE$gene_id),
+                  column="SYMBOL",
+                  keytype="GENEID",
+                  multiVals="first")
+
+resDE_symbol <- resDE_GE%>%
+            dplyr::select(symbol)
+resDE_gene_id <- resDE_GE%>%
+            dplyr::select(gene_id)
+
+GeneListSymbol <- paste("ORA_symbol_list_",contrast,".txt",sep="")
+GeneListGeneID <- paste("ORA_geneid_list_",contrast,".txt",sep="")
+GeneRefListSymbol <- paste(dir,"ORA_symbol_reflist_",contrast,".txt",sep="")
+GeneRefListGeneID <- paste(dir,"ORA_geneid_reflist_",contrast,".txt",sep="")
+  
+RankFileName <- paste("GSEA_symbol_",contrast,".rnk",sep="")
+
+write.table(resDE_symbol, file=GeneListSymbol, quote=FALSE, row.names=FALSE, col.names=FALSE)
+write.table(resDE_gene_id, file=GeneListGeneID, quote=FALSE, row.names=FALSE, col.names=FALSE)
+
+
+#Obtain the reference expression set
+resDE_GE <- as.data.frame(res)
+resDE_GE$gene_id <- rownames(res)
+
+#Fetch Entrez ID
+resDE_GE <- resDE_GE[complete.cases(resDE_GE[ , 5:6]),]
+resDE_GE$symbol = mapIds(hsa_db,
+                  keys=as.character(resDE_GE$gene_id),
+                  column="SYMBOL",
+                  keytype="GENEID",
+                  multiVals="first")
+resDE_symbol <- resDE_GE%>%
+            dplyr::select(symbol)
+resDE_gene_id <- resDE_GE%>%
+            dplyr::select(gene_id)
+
+write.table(resDE_symbol, file=GeneRefListSymbol, quote=FALSE, row.names=FALSE, col.names=FALSE)
+write.table(resDE_gene_id, file=GeneRefListGeneID, quote=FALSE, row.names=FALSE, col.names=FALSE)
+
+#Use View(listGeneSet()) to check on the different functional categories
+#pathway_KEGG
+#geneontology_Molecular_Function_noRedundant
+#geneontology_Biological_Process_noRedundant
+
+#####
+#ORA#
+#####
+
+enrichResult <- WebGestaltR(enrichMethod="ORA", organism="hsapiens",
+enrichDatabase="pathway_KEGG", interestGeneFile=GeneListSymbol,
+interestGeneType="genesymbol", referenceGeneFile=GeneRefListSymbol,
+referenceGeneType="genesymbol", isOutput=TRUE, sigMethod="top", minNum=5, reportNum = 40, outputDirectory=dir, projectName=paste("ORA_",contrast,"_pathway_kegg",sep=""))
+
+enrichResult <- WebGestaltR(enrichMethod="ORA", organism="hsapiens",
+enrichDatabase="geneontology_Molecular_Function_noRedundant", interestGeneFile=GeneListSymbol,
+interestGeneType="genesymbol", referenceGeneFile=GeneRefListSymbol,
+referenceGeneType="genesymbol", isOutput=TRUE, sigMethod="top", minNum=5, reportNum = 40, outputDirectory=dir, projectName=paste("ORA_",contrast,"_GO_MF",sep=""))
+
+enrichResult <- WebGestaltR(enrichMethod="ORA", organism="hsapiens",
+enrichDatabase="geneontology_Biological_Process_noRedundant", interestGeneFile=GeneListSymbol,
+interestGeneType="genesymbol", referenceGeneFile=GeneRefListSymbol,
+referenceGeneType="genesymbol", isOutput=TRUE, sigMethod="top", minNum=5, reportNum = 40, outputDirectory=dir, projectName=paste("ORA_",contrast,"_GO_BP",sep=""))
+
+enrichResult <- WebGestaltR(enrichMethod="ORA", organism="hsapiens",
+enrichDatabase="geneontology_Cellular_Component_noRedundant", interestGeneFile=GeneListSymbol,
+interestGeneType="genesymbol", referenceGeneFile=GeneRefListSymbol,
+referenceGeneType="genesymbol", isOutput=TRUE, sigMethod="top", minNum=5, reportNum = 40, outputDirectory=dir, projectName=paste("ORA_",contrast,"_GO_CP",sep=""))
+
+```
+
+# WebGestalt  (GSEA, Gene Set Enrichment Analysis)
+
+```{r}
+
+dir <- "rnaseq_ferroptomics/WebGestalt_GSA/"
+dir.create(dir)
+
+#The count matrix
+counts_dds <-as.data.frame(counts(dds, normalized=TRUE))
+
+#Prepare Annotation hub
+ah <- AnnotationHub()
+ahDb <- query(ah, pattern = c("homo sapiens", "EnsDb", 	105))     
+relevant_idx <- which(base::grepl(pattern = 105, x = ahDb$title ))
+hsa_db <- ahDb[[relevant_idx]]
+rm(ahDb); rm(ah)
+
+#Obtain the reference expression set
+resDE_GE <- as.data.frame(res)
+resDE_GE$gene_id <- rownames(res)
+counts_dds$gene_id <-rownames(counts_dds)
+
+#Fetch Entrez ID
+resDE_GE <- resDE_GE[complete.cases(resDE_GE[ , 5:6]),]
+resDE_GE$symbol = mapIds(hsa_db,
+                  keys=as.character(resDE_GE$gene_id),
+                  column="SYMBOL",
+                  keytype="GENEID",
+                  multiVals="first")
+
+counts_dds$symbol = mapIds(hsa_db,
+                  keys=as.character(counts_dds$gene_id),
+                  column="SYMBOL",
+                  keytype="GENEID",
+                  multiVals="first")
+counts_dds_GSEA <- cbind(counts_dds$symbol,counts_dds$gene_id,counts_dds) ##SV: changed 15 to 6 here, 6 samples considered
+colnames(counts_dds_GSEA)[colnames(counts_dds_GSEA) == "counts_dds$symbol"] <- "name"
+colnames(counts_dds_GSEA)[colnames(counts_dds_GSEA) == "counts_dds$gene_id"] <- "description"
+
+CountsFileName <- paste(dir, "GSEA_symbol_",contrast,".txt",sep="")
+write.table(counts_dds_GSEA, file=CountsFileName, sep = "\t", quote=FALSE, row.names=FALSE, col.names=TRUE)
+
+
+# Only top 1000 expressed genes are taken into account (otherwise the GSEA ranking has too many elements with equal stats (because of low expression), messing up the ranking))
+res2 <- resDE_GE %>% 
+  #top_n(1000, baseMean) %>%
+  dplyr::select(symbol, baseMean) %>%
+  na.omit() %>% 
+  distinct() %>% 
+  group_by(symbol) %>% 
+  #summarize(stat=mean(stat))  %>%
+  arrange(desc(baseMean))
+res2
+
+RankFileName <- paste(dir,"GSEA_symbol_",contrast,".rnk",sep="")
+write.table(res2, file=RankFileName, sep = "\t", quote=FALSE, row.names=FALSE, col.names=FALSE)
+
+######
+#GSEA#
+######
+
+###Pathway
+
+#KEGG
+enrichResult <- WebGestaltR(enrichMethod="GSEA", organism="hsapiens",
+  enrichDatabase="pathway_KEGG", interestGeneFile=RankFileName, dagColor = "continuous",
+  interestGeneType="genesymbol", sigMethod="fdr", fdrThr=0.1, minNum=5, reportNum = 40,
+  outputDirectory=dir, projectName = paste("GSEA_",contrast,"_Pathway_KEGG",sep=""))
+
+#WikiPathway
+enrichResult <- WebGestaltR(enrichMethod="GSEA", organism="hsapiens",
+  enrichDatabase="pathway_Wikipathway", interestGeneFile=RankFileName, dagColor = "continuous",
+  interestGeneType="genesymbol", sigMethod="fdr", fdrThr=0.1, minNum=5, reportNum = 40,
+  outputDirectory=dir, projectName = paste("GSEA_",contrast,"_Pathway_Wiki",sep=""))
+
+#Panther
+# enrichResult <- WebGestaltR(enrichMethod="GSEA", organism="mmusculus",
+#   enrichDatabase="pathway_Panther", interestGeneFile=RankFileName, dagColor = "continuous",
+#   interestGeneType="genesymbol", sigMethod="fdr", fdrThr=0.1, minNum=3, reportNum = 40,
+#   outputDirectory=dir, projectName = paste("GSEA_",contrast,"_Pathway_Panther",sep=""))
+
+#Reactome
+enrichResult <- WebGestaltR(enrichMethod="GSEA", organism="hsapiens",
+  enrichDatabase="pathway_Reactome", interestGeneFile=RankFileName, dagColor = "continuous",
+  interestGeneType="genesymbol", sigMethod="fdr", fdrThr=0.1, minNum=5, reportNum = 40,
+  outputDirectory=dir, projectName = paste("GSEA_",contrast,"_Pathway_Reactome",sep=""))
+
+
+###GO
+
+#Molecular Function
+enrichResult <- WebGestaltR(enrichMethod="GSEA", organism="hsapiens",
+  enrichDatabase="geneontology_Molecular_Function_noRedundant", interestGeneFile=RankFileName, dagColor = "continuous",
+  interestGeneType="genesymbol", sigMethod="fdr", fdrThr=0.1, minNum=5, reportNum = 40,
+  outputDirectory=dir, projectName = paste("GSEA_",contrast,"_GO_MF",sep=""))
+
+#Biological process
+enrichResult <- WebGestaltR(enrichMethod="GSEA", organism="hsapiens",
+  enrichDatabase="geneontology_Biological_Process_noRedundant", interestGeneFile=RankFileName, dagColor = "continuous",
+  interestGeneType="genesymbol", sigMethod="fdr", fdrThr=0.1, minNum=5, reportNum = 40,
+  outputDirectory=dir, projectName = paste("GSEA_",contrast,"_GO_BP",sep=""))
+
+#Cellular component
+enrichResult <- WebGestaltR(enrichMethod="GSEA", organism="hsapiens",
+  enrichDatabase="geneontology_Cellular_Component_noRedundant", interestGeneFile=RankFileName, dagColor = "continuous",
+  interestGeneType="genesymbol", sigMethod="fdr", fdrThr=0.1, minNum=5, reportNum = 40,
+  outputDirectory=dir, projectName = paste("GSEA_",contrast,"_GO_CC",sep=""))
+
+```
