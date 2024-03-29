@@ -32,12 +32,17 @@ library(WebGestaltR)
 ```{r}
 countdata_NB <- read.delim("count_matrices/countmatrix_NB.csv")
 countdata_newIMR <- read.delim("count_matrices/countmatrix_newIMR.csv")
+countdata_sensSHY <- read.delim("count_matrices/countmatrix_sensSHY.csv")
 countdata_MM <- read.delim("count_matrices/countmatrix_MM.csv")
 ```
 
 
 ```{r}
 countdata_all <- cbind(subset(countdata_NB, select = -c(gene_symbol, Ensembl_ID, length)), subset(countdata_newIMR, select = -c(gene_symbol, Ensembl_ID, length)), subset(countdata_MM, select = -c(gene_symbol, Ensembl_ID, length)))
+
+rownames(countdata_sensSHY) <- countdata_sensSHY$Ensembl_ID
+
+countdata_sensSHY <- subset(countdata_sensSHY, select = -c(gene_symbol, Ensembl_ID, length))
 
 rownames(countdata_all) <- countdata_NB$Ensembl_ID
 ```
@@ -61,6 +66,11 @@ colnames(countdata_all) <- new_ids
 head(countdata_all)
 ```
 
+```{r}
+new_ids <- sampleTable_exp$sample_id_adj[match(colnames(countdata_sensSHY), sampleTable_exp$run_id_rnaseq)]
+colnames(countdata_sensSHY) <- new_ids
+head(countdata_sensSHY)
+```
 
 ```{r}
 countdata_filt <- countdata_all %>%
@@ -84,6 +94,22 @@ dds_NB <- dds_full[, colData(dds_full)$tumor_type == "NB"]
 
 design(dds_full) <- ~ tumor_type + Group
 ```
+
+```{r}
+sampleTable_exp_filt = sampleTable_exp[sampleTable_exp$sample_id_adj %in% colnames(countdata_sensSHY), ]
+rownames(sampleTable_exp_filt) <- sampleTable_exp_filt$sample_id_adj
+
+# Next, we need to reorder the rows of sampleTable_exp_filt based on the order of the columns in countdata_filt
+sampleTable_exp_filt_reordered <- sampleTable_exp_filt[match(colnames(countdata_sensSHY), rownames(sampleTable_exp_filt)), ]
+
+rownames(sampleTable_exp_filt_reordered) <- sampleTable_exp_filt_reordered$sample_id_adj
+
+dds_sensSHY <- DESeqDataSetFromMatrix(countdata_sensSHY, sampleTable_exp_filt_reordered, design = ~ Group)
+
+dds_sensSHY$Group <- relevel(dds_sensSHY$Group, "S")
+dds_sensSHY <- estimateSizeFactors(dds_sensSHY)
+```
+
 
 # Sample distances
 
@@ -119,8 +145,8 @@ sample_distance_heatmap <- function(dds, dir, affix) {
 Visualize the distance matrix as heatmap
 
 ```{r fig.width=12, fig.height=12}
-affixes <- c("full", "NB", "MM")
-dds_list <- list(dds_full, dds_NB, dds_MM)
+affixes <- c("full", "NB", "MM", "sensSHY")
+dds_list <- list(dds_full, dds_NB, dds_MM, dds_sensSHY)
 dir <- "outputs/DataExploration"
 dir.create(dir)
 
@@ -138,6 +164,7 @@ dir.create(dir)
 rld_full <- vst(dds_full)
 rld_NB <- vst(dds_NB)
 rld_MM <- vst(dds_MM)
+rld_sensSHY <- vst(dds_sensSHY)
 
 ## Top 500
 
@@ -153,6 +180,10 @@ png(paste0(dir, "/PCA_MM_ntop500.png"), width = 900, height = 900)
 pcaplot(rld_MM, intgroup=c("Group"), ellipse = FALSE)
 dev.off()
 
+png(paste0(dir, "/PCA_sensSHY_ntop500.png"), width = 900, height = 900)
+pcaplot(rld_sensSHY, intgroup=c("Group"), ellipse = FALSE)
+dev.off()
+
 ## Top 10000
 
 png(paste0(dir, "/PCA_full_ntop10000.png"), width = 900, height = 900)
@@ -165,6 +196,10 @@ dev.off()
 
 png(paste0(dir, "/PCA_MM_ntop10000.png"), width = 900, height = 900)
 pcaplot(rld_MM, intgroup=c("Group"), ellipse = FALSE, ntop = 10000)
+dev.off()
+
+png(paste0(dir, "/PCA_sensSHY_ntop10000.png"), width = 900, height = 900)
+pcaplot(rld_sensSHY, intgroup=c("Group"), ellipse = FALSE, ntop = 10000)
 dev.off()
 ```
 
@@ -441,7 +476,7 @@ for (i in seq_along(resdata_annot_list)) {
   minpvaladj <- min(resdata_annot_notnull$padj, na.rm = TRUE)
   
   ## Volcano plot with "significant" genes labeled
-  volcanoplot <- function (res, lfcthresh=2, sigthresh=0.05, main="Volcano Plot", legendpos="bottomleft", labelsig=TRUE, textcx=1, ...) {
+  volcanoplot <- function (res, lfcthresh=1, sigthresh=0.05, main="Volcano Plot", legendpos="bottomleft", labelsig=TRUE, textcx=1, ...) {
     with(res, plot(log2FoldChange, -log10(pvalue+minpvaladj), pch=20, main=main, ...))
     with(subset(res, padj<sigthresh ), points(log2FoldChange, -log10(pvalue+minpvaladj), pch=20, col="red", ...))
     with(subset(res, abs(log2FoldChange)>lfcthresh), points(log2FoldChange, -log10(pvalue+minpvaladj), pch=20, col="orange", ...))
@@ -452,7 +487,7 @@ for (i in seq_along(resdata_annot_list)) {
     legend(legendpos, xjust=1, yjust=1, legend=c(paste("FDR<",sigthresh,sep=""), paste("|LogFC|>",lfcthresh,sep=""), "both"), pch=20, col=c("red","orange","green"))
   }
   png(paste("outputs/DifferentialAnalysis/DE_volcano_",celline,"_",contrast,"_", affix, ".png", sep=""), 1200, 1000, pointsize=20)
-  volcanoplot(resdata_annot, lfcthresh=2, sigthresh=0.05, textcx=.8, xlim=c(-10, 10), ylim=c(0,10))
+  volcanoplot(resdata_annot, lfcthresh=1, sigthresh=0.05, textcx=.8, xlim=c(-10, 10), ylim=c(0,10))
   dev.off()
 }
 ```
