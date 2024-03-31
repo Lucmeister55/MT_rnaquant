@@ -25,6 +25,7 @@ library(R.utils)
 library(fgsea)
 library(data.table)
 library(WebGestaltR)
+library(UpSetR)
 ```
 
 ## 1. Read count table
@@ -38,7 +39,7 @@ countdata_MM <- read.delim("count_matrices/countmatrix_MM.csv")
 
 
 ```{r}
-countdata_all <- cbind(subset(countdata_NB, select = -c(gene_symbol, Ensembl_ID, length)), subset(countdata_newIMR, select = -c(gene_symbol, Ensembl_ID, length)), subset(countdata_MM, select = -c(gene_symbol, Ensembl_ID, length)))
+countdata_all <- cbind(subset(countdata_NB, select = -c(gene_symbol, Ensembl_ID, length)), subset(countdata_newIMR, select = -c(gene_symbol, Ensembl_ID, length)), subset(countdata_MM, select = -c(gene_symbol, Ensembl_ID, length)), subset(countdata_sensSHY, select = -c(gene_symbol, Ensembl_ID, length)))
 
 rownames(countdata_sensSHY) <- countdata_sensSHY$Ensembl_ID
 
@@ -50,7 +51,7 @@ rownames(countdata_all) <- countdata_NB$Ensembl_ID
 ## 2. Read sample table
 
 ```{r}
-sampleTable_exp <- read_csv2("ont_metadata.csv") %>%
+sampleTable_exp <- read_csv("ont_metadata.csv") %>%
   mutate("Group" = factor(Group)) %>%
   mutate("gender" = factor(gender)) %>%
   mutate("tumor_type" = factor(tumor_type))
@@ -90,6 +91,7 @@ dds_full$Group <- relevel(dds_full$Group, "S")
 dds_full <- estimateSizeFactors(dds_full)
 
 dds_MM <- dds_full[, colData(dds_full)$tumor_type == "MM"]
+dds_MM$Group <- factor(droplevels(dds_MM$Group))
 dds_NB <- dds_full[, colData(dds_full)$tumor_type == "NB"]
 
 design(dds_full) <- ~ tumor_type + Group
@@ -106,7 +108,7 @@ rownames(sampleTable_exp_filt_reordered) <- sampleTable_exp_filt_reordered$sampl
 
 dds_sensSHY <- DESeqDataSetFromMatrix(countdata_sensSHY, sampleTable_exp_filt_reordered, design = ~ Group)
 
-dds_sensSHY$Group <- relevel(dds_sensSHY$Group, "S")
+dds_sensSHY$Group <- relevel(dds_sensSHY$Group, "Ss")
 dds_sensSHY <- estimateSizeFactors(dds_sensSHY)
 ```
 
@@ -220,11 +222,8 @@ for (i in seq_along(dds_list)) {
 }
 ```
 
+
 ## 2. Set design
-
-Comparing two types of samples, which differ by a single covariate (here: `Group`), ("a two-group comparison") is straight-forward.
-
-Set the comparison type, i.e. indicate which column in the colData table contains the group information
 
 ```{r}
 dir.create("outputs/DifferentialAnalysis")
@@ -238,43 +237,67 @@ for (i in seq_along(dds_list)) {
 
   dds_deseq <- DESeq(dds)
   
-  res <- results(dds_deseq, alpha = 0.05)
-  summary(res)
+  if (affix == "full" | affix == "NB") {
+    contrasts <- list(c("Group", "R", "S"), c("Group", "R", "Ss"), c("Group", "S", "Ss"))
+  } else if (affix == "sensSHY") {
+    contrasts <- list(c("Group", "R", "Ss"))
+  } else {
+    contrasts <- list(c("Group", "R", "S"))
+  }
   
-  jpeg(paste0("outputs/DifferentialAnalysis/dispersion_plot_", affix, ".jpeg"), width = 1500, height = 1000)
-  plotDispEsts(dds_deseq)
-  dev.off()
-  
-  dds_deseq_list <- c(dds_deseq_list, dds_deseq)
+  for (contrast in contrasts) {
+    print(paste(contrast, collapse = "_"))
+    res <- results(dds_deseq, alpha = 0.05, contrast = contrast)
+    summary(res)
+    jpeg(paste0("outputs/DifferentialAnalysis/dispersion_plot_", affix, "_", paste(contrast, collapse = "_"), ".jpeg"), 
+         width = 1500, height = 1000)
+    plotDispEsts(dds_deseq)
+    dev.off()
+    
+    dds_deseq_list <- c(dds_deseq_list, dds_deseq)
+  }
 }
 ```
+```{r}
+contrasts <- list(c("Group", "R", "S"), c("Group", "R", "Ss"), c("Group", "S", "Ss"), c("Group", "R", "S"), c("Group", "R", "Ss"), c("Group", "S", "Ss"), c("Group", "R", "S"), c("Group", "R", "Ss"))
+affixes <- list("full", "full", "full", "NB", "NB", "NB", "MM", "sensSHY")
+
+# Combine the elements from both lists
+combined_list <- gsub(" ", "", paste0(affixes, "_", sapply(contrasts, function(x) paste(x[length(x) - 1], "_vs_", x[length(x)], collapse = ""))))
+
+# Print the combined list
+print(combined_list)
+```
+
 
 ## 3. Get the results
 
 ```{r}
-res_RvsS_lfc_list <- list()
+res_lfc_list <- list()
 
 for (i in seq_along(dds_deseq_list)) {
   dds <- dds_deseq_list[[i]]
   affix <- affixes[i]
   print(affix)
-  
+  contrast = contrasts[[i]]
+  print(paste(contrast, collapse = "_"))
+   
   resultsNames(dds)
-  res_RvsS <- results(dds, independentFiltering=TRUE, contrast=c("Group","R","S"), alpha = 0.05) #Last level is the base level
-  res_RvsS_all <- results(dds, independentFiltering=TRUE, contrast=c("Group","R","S"))
+  res <- results(dds, independentFiltering=TRUE, contrast=contrast, alpha = 0.05) #Last level is the base level
+  res_all <- results(dds, independentFiltering=TRUE, contrast=contrast)
   
-  sink(paste0("outputs/DifferentialAnalysis/results_summary_", affix, ".txt"))
-  summary(res_RvsS)
+  sink(paste0("outputs/DifferentialAnalysis/results_summary_", affix, "_", paste(contrast, collapse = "_"), ".txt"))
+  summary(res)
   sink()
   
-  res_RvsS_lfc <- lfcShrink(dds, contrast = c("Group", "R", "S"), type = "ashr", alpha = 0.05, res = res_RvsS)
-  res_RvsS_lfc_all <- lfcShrink(dds, contrast = c("Group", "R", "S"), type = "ashr", res = res_RvsS_all)
+  res_lfc <- lfcShrink(dds, contrast = contrast, type = "ashr", alpha = 0.05, res = res)
+  res_lfc_all <- lfcShrink(dds, contrast = contrast, type = "ashr", res = res_all)
   
-  sink(paste0("outputs/DifferentialAnalysis/resultsLFC_summary_", affix, ".txt"))
-  summary(res_RvsS_lfc)
+  sink(paste0("outputs/DifferentialAnalysis/resultsLFC_summary_", affix, "_", paste(contrast, collapse = "_"), ".txt"))
+  summary(res_lfc)
   sink()
   
-  res_RvsS_lfc_list <- c(res_RvsS_lfc_list, res_RvsS_lfc_all)
+  res_lfc_list <- c(res_lfc_list, res_lfc_all)
 }
 ```
 
@@ -287,9 +310,11 @@ pca_plots <- vector("list", length = length(dds_deseq_list))
 # Perform PCA and generate plots
 for (i in seq_along(dds_deseq_list)) {
   dds <- dds_deseq_list[[i]]
-  res <- res_RvsS_lfc_list[[i]] 
+  res <- res_lfc_list[[i]] 
   affix <- affixes[i]
   print(affix)
+  contrast = contrasts[[i]]
+  print(paste(contrast, collapse = "_"))
   
   rld <- vst(dds)
   
@@ -309,13 +334,14 @@ for (i in seq_along(dds_deseq_list)) {
 for (i in seq_along(pca_plots)) {
   pca_result <- pca_plots[[i]]$pca_result
   affix <- pca_plots[[i]]$affix
+  contrast = contrasts[[i]]
   
-  png(paste0(dir, paste0("/PCA_", affix, "_dge.png")), width = 900, height = 900)
+  png(paste0(dir, paste0("/PCA_", affix, "_", paste(contrast, collapse = "_"), "_dge.png")), width = 900, height = 900)
   
   plot(pca_result$x[,1], pca_result$x[,2], 
        xlab = paste("PC1 (", round(100 * summary(pca_result)$importance[2,1], 1), "%)", sep=""),
        ylab = paste("PC2 (", round(100 * summary(pca_result)$importance[2,2], 1), "%)", sep=""), 
-       main = paste("PCA of", affix, "DEGs"))
+       main = paste("PCA of", affix, "_", paste(contrast, collapse = "_"), "DEGs"))
   
   # Add labels to points
   text(pca_result$x[,1], pca_result$x[,2], labels = rownames(pca_result$x), cex=0.7, pos=3)
@@ -332,7 +358,6 @@ Other plotting functions
 # Set generic dds and res, condition, resdata and resdata_annot
 
 ###########SECTION TO BE ADJUSTED#######
-contrast <- "RvsS"
 condition_name <- "Group"
 celline <- "human"
 ###########SECTION TO BE ADJUSTED#######
@@ -340,7 +365,7 @@ celline <- "human"
 resdata_list <- list()
 
 for (i in seq_along(dds_deseq_list)) {
-  res <- res_RvsS_lfc_list[[i]]
+  res <- res_lfc_list[[i]]
   dds <- dds_deseq_list[[i]]
   affix <- affixes[i]
   print(affix)
@@ -396,11 +421,13 @@ for (i in seq_along(dds_deseq_list)) {
   dds <- dds_deseq_list[[i]]
   affix <- affixes[i]
   print(affix)
+  contrast = contrasts[[i]]
+  print(contrast)
   
   rld <- vst(dds)
   head(assay(rld))
   
-  png(paste0("outputs/DifferentialAnalysis/rld_hist_", affix, ".png"))
+  png(paste0("outputs/DifferentialAnalysis/rld_hist_", affix, "_", paste(contrast, collapse = "_"), ".png"))
   hist(assay(rld))
   dev.off()
   
@@ -417,6 +444,8 @@ for (i in seq_along(dds_deseq_list)) {
   rld <- rld_list[[i]]
   affix <- affixes[i]
   print(affix)
+  contrast = contrasts[[i]]
+  print(contrast)
   
   condition <- colData(dds)$Group
   
@@ -426,7 +455,7 @@ for (i in seq_along(dds_deseq_list)) {
   
   sampleDists <- as.matrix(dist(t(assay(rld))))
   
-  png(paste0("outputs/DifferentialAnalysis/heatmap_sampdist_", affix, ".png"))
+  png(paste0("outputs/DifferentialAnalysis/heatmap_sampdist_", affix, "_", paste(contrast, collapse = "_"), ".png"))
   heatmap.2(as.matrix(sampleDists), key=F, trace="none",
             col=colorpanel(100, "black", "white"),
             ColSideColors=mycols[condition], RowSideColors=mycols[condition],
@@ -441,9 +470,11 @@ for (i in seq_along(dds_deseq_list)) {
 ```{r}
 for (i in seq_along(resdata_annot_list)) {
   resdata_annot <- resdata_annot_list[[i]]
-  res <- res_RvsS_lfc_list[[i]]
+  res <- res_lfc_list[[i]]
   affix <- affixes[i]
   print(affix)
+  contrast = paste(contrasts[[i]], collapse = "_")
+  print(contrast)
   
   DE_file_name <- paste("outputs/DifferentialAnalysis/DE_results_",celline,"_",contrast,"_", affix,".csv", sep="" )
 
@@ -492,21 +523,23 @@ for (i in seq_along(resdata_annot_list)) {
 }
 ```
 
+
 # Heatmap of top expression results
 
 ```{r}
 
 ###########SECTION TO BE ADJUSTED#######
-contrast <- "RvsS"
 condition_name <- "Group"
 celline <- "human"
 ###########SECTION TO BE ADJUSTED#######
 
 for (i in seq_along(dds_deseq_list)) {
   dds <- dds_deseq_list[[i]]
-  res <- res_RvsS_lfc_list[[i]]
+  res <- res_lfc_list[[i]]
   affix <- affixes[i]
   print(affix)
+  contrast = paste(contrasts[[i]], collapse = "_")
+  print(contrast)
   
   vsd <- vst(dds)
   vsd_assay <- assay(vsd)
@@ -558,7 +591,7 @@ for (i in seq_along(dds_deseq_list)) {
 ```{r}
 for (i in seq_along(dds_deseq_list)) {
   dds <- dds_deseq_list[[i]]
-  res <- res_RvsS_lfc_list[[i]]
+  res <- res_lfc_list[[i]]
   affix <- affixes[i]
   print(affix)
   
@@ -590,3 +623,30 @@ for (i in seq_along(dds_deseq_list)) {
   dev.off()
 }
 ```
+
+```{r}
+# Example data (replace this with your own data)
+gene_sets <- list()
+
+for (i in seq_along(resdata_annot_list)) {
+  title = combined_list[[i]]
+  resdata_annot <- resdata_annot_list[[i]] %>%
+    filter(padj < 0.05)
+  gene_sets[[title]] <- na.omit(resdata_annot$name)
+}
+
+whitelist = read.csv("complete_gene_list_no_duplicates.txt")
+gene_sets[["whitelist"]] = whitelist[, 2]
+
+# Create UpSet plot
+upset_data <- fromList(gene_sets)
+upset_plot <- upset(upset_data, sets = names(gene_sets), keep.order = TRUE)
+
+print(upset_plot)
+
+# Save the plot as a PNG file with increased resolution
+png("outputs/DifferentialAnalysis/upset_plot.png", width = 1600, height = 1000, pointsize = 10)
+print(upset_plot)
+dev.off()
+```
+
