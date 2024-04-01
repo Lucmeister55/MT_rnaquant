@@ -632,7 +632,7 @@ for (i in seq_along(resdata_annot_list)) {
   title = combined_list[[i]]
   resdata_annot <- resdata_annot_list[[i]] %>%
     filter(padj < 0.05)
-  gene_sets[[title]] <- na.omit(resdata_annot$name)
+  gene_sets[[title]] <- unique(na.omit(resdata_annot$name))
 }
 
 whitelist = read.csv("complete_gene_list_no_duplicates.txt")
@@ -640,7 +640,10 @@ gene_sets[["whitelist"]] = whitelist[, 2]
 
 # Create UpSet plot
 upset_data <- fromList(gene_sets)
-upset_plot <- upset(upset_data, sets = names(gene_sets), keep.order = TRUE)
+upset_plot <- upset(upset_data, 
+                    sets = names(gene_sets), 
+                    keep.order = TRUE, 
+                    mainbar.y.label = "Gene Symbol Intersections")
 
 print(upset_plot)
 
