@@ -26,6 +26,7 @@ library(fgsea)
 library(data.table)
 library(WebGestaltR)
 library(UpSetR)
+library(gridExtra)
 ```
 
 ## 1. Read count table
@@ -171,37 +172,46 @@ rld_sensSHY <- vst(dds_sensSHY)
 ## Top 500
 
 png(paste0(dir, "/PCA_full_ntop500.png"), width = 900, height = 900)
-pcaplot(rld_full, intgroup=c("Group"), ellipse = FALSE)
+pca_full_ntop500 <- pcaplot(rld_full, intgroup=c("tumor_type", "Group"), ellipse = TRUE, text_labels = TRUE)
+pca_full_ntop500
 dev.off()
 
 png(paste0(dir, "/PCA_NB_ntop500.png"), width = 900, height = 900)
-pcaplot(rld_NB, intgroup=c("Group"), ellipse = FALSE)
+pca_NB_ntop500 <- pcaplot(rld_NB, intgroup=c("tumor_type", "Group"), ellipse = TRUE, text_labels = TRUE)
+pca_NB_ntop500
 dev.off()
 
 png(paste0(dir, "/PCA_MM_ntop500.png"), width = 900, height = 900)
-pcaplot(rld_MM, intgroup=c("Group"), ellipse = FALSE)
+pca_MM_ntop500 <- pcaplot(rld_MM, intgroup=c("tumor_type", "Group"), ellipse = TRUE, text_labels = TRUE)
+pca_MM_ntop500
 dev.off()
 
 png(paste0(dir, "/PCA_sensSHY_ntop500.png"), width = 900, height = 900)
-pcaplot(rld_sensSHY, intgroup=c("Group"), ellipse = FALSE)
+pca_sensSHY_ntop500 <- pcaplot(rld_sensSHY, intgroup=c("tumor_type", "Group"), ellipse = TRUE, text_labels = TRUE)
+pca_sensSHY_ntop500
+dev.off()
+
+png(paste0(dir, "/PCA_combined_plots.png"), width = 900, height = 900)
+pca_combined_ntop500 <- grid.arrange(pca_full_ntop500, pca_NB_ntop500, pca_MM_ntop500, pca_sensSHY_ntop500, ncol=2)
+pca_combined_ntop500
 dev.off()
 
 ## Top 10000
 
 png(paste0(dir, "/PCA_full_ntop10000.png"), width = 900, height = 900)
-pcaplot(rld_full, intgroup=c("Group"), ellipse = FALSE, ntop = 10000)
+pcaplot(rld_full, intgroup=c("tumor_type", "Group"), ellipse = TRUE, text_labels = TRUE, ntop = 10000)
 dev.off()
 
 png(paste0(dir, "/PCA_NB_ntop10000.png"), width = 900, height = 900)
-pcaplot(rld_NB, intgroup=c("Group"), ellipse = FALSE, ntop = 10000)
+pcaplot(rld_NB, intgroup=c("tumor_type", "Group"), ellipse = TRUE, text_labels = TRUE, ntop = 10000)
 dev.off()
 
 png(paste0(dir, "/PCA_MM_ntop10000.png"), width = 900, height = 900)
-pcaplot(rld_MM, intgroup=c("Group"), ellipse = FALSE, ntop = 10000)
+pcaplot(rld_MM, intgroup=c("tumor_type", "Group"), ellipse = TRUE, text_labels = TRUE, ntop = 10000)
 dev.off()
 
 png(paste0(dir, "/PCA_sensSHY_ntop10000.png"), width = 900, height = 900)
-pcaplot(rld_sensSHY, intgroup=c("Group"), ellipse = FALSE, ntop = 10000)
+pcaplot(rld_sensSHY, intgroup=c("tumor_type", "Group"), ellipse = TRUE, text_labels = TRUE, ntop = 10000)
 dev.off()
 ```
 
