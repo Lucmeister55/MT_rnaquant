@@ -172,22 +172,22 @@ rld_sensSHY <- vst(dds_sensSHY)
 ## Top 500
 
 png(paste0(dir, "/PCA_full_ntop500.png"), width = 900, height = 900)
-pca_full_ntop500 <- pcaplot(rld_full, intgroup=c("tumor_type", "Group"), ellipse = TRUE, text_labels = TRUE)
+pca_full_ntop500 <- pcaplot(rld_full, title = "PCA plot - top 500 variable genes - full", intgroup=c("tumor_type", "Group"), ellipse = TRUE, text_labels = TRUE)
 pca_full_ntop500
 dev.off()
 
 png(paste0(dir, "/PCA_NB_ntop500.png"), width = 900, height = 900)
-pca_NB_ntop500 <- pcaplot(rld_NB, intgroup=c("tumor_type", "Group"), ellipse = TRUE, text_labels = TRUE)
+pca_NB_ntop500 <- pcaplot(rld_NB, title = "PCA plot - top 500 variable genes - NB", intgroup=c("tumor_type", "Group"), ellipse = TRUE, text_labels = TRUE)
 pca_NB_ntop500
 dev.off()
 
 png(paste0(dir, "/PCA_MM_ntop500.png"), width = 900, height = 900)
-pca_MM_ntop500 <- pcaplot(rld_MM, intgroup=c("tumor_type", "Group"), ellipse = TRUE, text_labels = TRUE)
+pca_MM_ntop500 <- pcaplot(rld_MM, title = "PCA plot - top 500 variable genes - MM", intgroup=c("tumor_type", "Group"), ellipse = TRUE, text_labels = TRUE)
 pca_MM_ntop500
 dev.off()
 
 png(paste0(dir, "/PCA_sensSHY_ntop500.png"), width = 900, height = 900)
-pca_sensSHY_ntop500 <- pcaplot(rld_sensSHY, intgroup=c("tumor_type", "Group"), ellipse = TRUE, text_labels = TRUE)
+pca_sensSHY_ntop500 <- pcaplot(rld_sensSHY, title = "PCA plot - top 500 variable genes - sensSHY", intgroup=c("tumor_type", "Group"), ellipse = TRUE, text_labels = TRUE)
 pca_sensSHY_ntop500
 dev.off()
 
@@ -636,30 +636,50 @@ for (i in seq_along(dds_deseq_list)) {
 
 ```{r}
 # Example data (replace this with your own data)
-gene_sets <- list()
+gene_sets_up <- list()
+gene_sets_down <- list()
 
 for (i in seq_along(resdata_annot_list)) {
   title = combined_list[[i]]
   resdata_annot <- resdata_annot_list[[i]] %>%
-    filter(padj < 0.05)
-  gene_sets[[title]] <- unique(na.omit(resdata_annot$name))
+    filter(padj < 0.05) %>%
+    filter(log2FoldChange > 0)
+  gene_sets_up[[title]] <- unique(na.omit(resdata_annot$name))
+}
+
+for (i in seq_along(resdata_annot_list)) {
+  title = combined_list[[i]]
+  resdata_annot <- resdata_annot_list[[i]] %>%
+    filter(padj < 0.05) %>%
+    filter(log2FoldChange < 0)
+  gene_sets_down[[title]] <- unique(na.omit(resdata_annot$name))
 }
 
 whitelist = read.csv("complete_gene_list_no_duplicates.txt")
-gene_sets[["whitelist"]] = whitelist[, 2]
 
-# Create UpSet plot
-upset_data <- fromList(gene_sets)
-upset_plot <- upset(upset_data, 
-                    sets = names(gene_sets), 
-                    keep.order = TRUE, 
-                    mainbar.y.label = "Gene Symbol Intersections")
+gene_sets_up[["whitelist"]] = whitelist[, 2]
+gene_sets_down[["whitelist"]] = whitelist[, 2]
 
-print(upset_plot)
+generate_upset_plot <- function(gene_sets, ylabel, file){
+  # Create UpSet plot
+  upset_data <- fromList(gene_sets)
+  upset_plot <- upset(upset_data, 
+                      sets = names(gene_sets), 
+                      keep.order = TRUE, 
+                      mainbar.y.label = ylabel,
+                      nintersects = 20,
+                      text.scale = 3.5)
+  
+  print(upset_plot)
+  
+  # Save the plot as a PNG file with increased resolution
+  png(file, width = 1900, height = 1200, pointsize = 5)
+  print(upset_plot)
+  dev.off()
+}
 
-# Save the plot as a PNG file with increased resolution
-png("outputs/DifferentialAnalysis/upset_plot.png", width = 1600, height = 1000, pointsize = 10)
-print(upset_plot)
-dev.off()
+generate_upset_plot(gene_sets_up, "Gene Symbol Intersection Size - Upregulated", "outputs/DifferentialAnalysis/upset_plot_up.png")
+generate_upset_plot(gene_sets_down, "Gene Symbol Intersection Size - Downregulated","outputs/DifferentialAnalysis/upset_plot_down.png")
 ```
+
 
