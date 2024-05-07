@@ -668,7 +668,7 @@ generate_upset_plot <- function(gene_sets, ylabel, file){
                       keep.order = TRUE, 
                       mainbar.y.label = ylabel,
                       nintersects = 20,
-                      text.scale = 3.5)
+                      text.scale = 3)
   
   print(upset_plot)
   
