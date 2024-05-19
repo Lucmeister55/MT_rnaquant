@@ -662,7 +662,7 @@ generate_upset_plot <- function(gene_sets, ylabel, file){
                       sets = names(gene_sets), 
                       keep.order = TRUE, 
                       mainbar.y.label = ylabel,
-                      nintersects = 30,
+                      nintersects = 20,
                       order.by = "freq",
                       text.scale = 3)
   
