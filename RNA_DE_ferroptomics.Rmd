@@ -655,11 +655,6 @@ for (i in seq_along(resdata_annot_list)) {
   gene_sets_down[[title]] <- unique(na.omit(resdata_annot$name))
 }
 
-whitelist = read.csv("complete_gene_list_no_duplicates.txt")
-
-gene_sets_up[["whitelist"]] = whitelist[, 2]
-gene_sets_down[["whitelist"]] = whitelist[, 2]
-
 generate_upset_plot <- function(gene_sets, ylabel, file){
   # Create UpSet plot
   upset_data <- fromList(gene_sets)
@@ -667,7 +662,8 @@ generate_upset_plot <- function(gene_sets, ylabel, file){
                       sets = names(gene_sets), 
                       keep.order = TRUE, 
                       mainbar.y.label = ylabel,
-                      nintersects = 20,
+                      nintersects = 30,
+                      order.by = "freq",
                       text.scale = 3)
   
   print(upset_plot)
@@ -681,5 +677,86 @@ generate_upset_plot <- function(gene_sets, ylabel, file){
 generate_upset_plot(gene_sets_up, "Gene Symbol Intersection Size - Upregulated", "outputs/DifferentialAnalysis/upset_plot_up.png")
 generate_upset_plot(gene_sets_down, "Gene Symbol Intersection Size - Downregulated","outputs/DifferentialAnalysis/upset_plot_down.png")
 ```
+```{r}
+library(ggplot2)
+library(dplyr)
+
+# Calculate set sizes and percentages
+calculate_set_sizes <- function(gene_sets, whitelist_genes) {
+  set_sizes <- sapply(gene_sets, length)
+  intersect_sizes <- sapply(gene_sets, function(genes) length(intersect(genes, whitelist_genes)))
+  percentages <- (intersect_sizes / set_sizes) * 100
+  
+  data.frame(
+    Set = names(gene_sets),
+    Total_Size = set_sizes,
+    FRG_Size = intersect_sizes,
+    Percentage_FRG = percentages
+  )
+}
+
+# Generate bar plot
+generate_bar_plot <- function(set_data, ylabel, file) {
+  # Exclude the "whitelist" bar
+  set_data <- set_data[set_data$Set != "whitelist", ]
+  
+  ggplot(set_data, aes(x = Set)) +
+    geom_bar(aes(y = Total_Size), stat = "identity", fill = "lightblue") +
+    geom_bar(aes(y = FRG_Size), stat = "identity", fill = "red", alpha = 0.7) +
+    geom_text(aes(y = FRG_Size, label = paste0(round(Percentage_FRG, 1), "%")), 
+              vjust = -0.5, size = 5, color = "black") +
+    labs(y = ylabel, x = "Gene Sets") +
+    theme_classic() +
+    theme(
+      axis.text.x = element_text(angle = 45, hjust = 1, size = 12),
+      axis.text.y = element_text(size = 12),
+      axis.title = element_text(size = 14),
+      plot.title = element_text(size = 16)
+    ) +
+    ggtitle("Gene Set Whitelist Overlap") +
+    theme(legend.position = "none")
+  
+  ggsave(file, width = 10, height = 6)
+}
+
+# Read whitelist
+whitelist <- read.csv("complete_gene_list_no_duplicates_cleaned.txt", header = FALSE)
+whitelist_genes <- whitelist[, 1]
+
+# Prepare gene sets
+gene_sets_up <- list()
+gene_sets_down <- list()
+
+for (i in seq_along(resdata_annot_list)) {
+  title <- combined_list[[i]]
+  resdata_annot <- resdata_annot_list[[i]] %>%
+    filter(padj < 0.05) %>%
+    filter(log2FoldChange > 0)
+  gene_sets_up[[title]] <- unique(na.omit(resdata_annot$name))
+}
+
+for (i in seq_along(resdata_annot_list)) {
+  title <- combined_list[[i]]
+  resdata_annot <- resdata_annot_list[[i]] %>%
+    filter(padj < 0.05) %>%
+    filter(log2FoldChange < 0)
+  gene_sets_down[[title]] <- unique(na.omit(resdata_annot$name))
+}
+
+# Add whitelist to the sets
+gene_sets_up[["whitelist"]] <- whitelist_genes
+gene_sets_down[["whitelist"]] <- whitelist_genes
+
+# Calculate set sizes
+set_data_up <- calculate_set_sizes(gene_sets_up, whitelist_genes)
+set_data_down <- calculate_set_sizes(gene_sets_down, whitelist_genes)
+
+# Generate bar plots
+generate_bar_plot(set_data_up, "Gene Set Sizes - Upregulated", "outputs/DifferentialAnalysis/bar_plot_up.png")
+generate_bar_plot(set_data_down, "Gene Set Sizes - Downregulated", "outputs/DifferentialAnalysis/bar_plot_down.png")
+
+
+```
+
 
 
