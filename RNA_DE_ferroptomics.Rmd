@@ -161,58 +161,58 @@ for (i in seq_along(dds_list)) {
 # PCA plot
 
 ```{r}
-dir <- "outputs/DataExploration"
-dir.create(dir)
+library(ggplot2)
+library(gridExtra)
 
+dir <- "outputs/DataExploration"
+dir.create(dir, showWarnings = FALSE)
+
+# Variance stabilizing transformation
 rld_full <- vst(dds_full)
 rld_NB <- vst(dds_NB)
 rld_MM <- vst(dds_MM)
 rld_sensSHY <- vst(dds_sensSHY)
 
-## Top 500
+# Define a helper function to create PCA plots with custom colors and shapes
+create_pca_plot <- function(data, title, ntop = 500) {
+  pca_plot <- pcaplot(data, title = title, intgroup = c("Group", "tumor_type"), ellipse = TRUE, text_labels = TRUE, ntop = ntop) +
+    theme(
+      aspect.ratio = 1,
+      plot.margin = unit(c(1, 1, 1, 1), "cm"),
+      plot.title = element_text(size = 14)
+    )
+  return(pca_plot)
+}
 
-png(paste0(dir, "/PCA_full_ntop500.png"), width = 900, height = 900)
-pca_full_ntop500 <- pcaplot(rld_full, title = "PCA plot - top 500 variable genes - full", intgroup=c("tumor_type", "Group"), ellipse = TRUE, text_labels = TRUE)
-pca_full_ntop500
+# Create and save individual PCA plots
+pca_full_ntop500 <- create_pca_plot(rld_full, "PCA plot - top 500 variable genes - full")
+pca_NB_ntop500 <- create_pca_plot(rld_NB, "PCA plot - top 500 variable genes - NB")
+pca_MM_ntop500 <- create_pca_plot(rld_MM, "PCA plot - top 500 variable genes - MM")
+pca_sensSHY_ntop500 <- create_pca_plot(rld_sensSHY, "PCA plot - top 500 variable genes - sensSHY")
+
+# Save individual PCA plots with the same dimensions
+ggsave(paste0(dir, "/PCA_full_ntop500.png"), plot = pca_full_ntop500, width = 6, height = 6)
+ggsave(paste0(dir, "/PCA_NB_ntop500.png"), plot = pca_NB_ntop500, width = 6, height = 6)
+ggsave(paste0(dir, "/PCA_MM_ntop500.png"), plot = pca_MM_ntop500, width = 6, height = 6)
+ggsave(paste0(dir, "/PCA_sensSHY_ntop500.png"), plot = pca_sensSHY_ntop500, width = 6, height = 6)
+
+# Combine the PCA plots into one image with equal spacing
+png(paste0(dir, "/PCA_combined_plots_ntop500.png"), width = 1200, height = 1200)
+grid.arrange(pca_full_ntop500, pca_NB_ntop500, pca_MM_ntop500, pca_sensSHY_ntop500, ncol = 2, nrow = 2)
 dev.off()
 
-png(paste0(dir, "/PCA_NB_ntop500.png"), width = 900, height = 900)
-pca_NB_ntop500 <- pcaplot(rld_NB, title = "PCA plot - top 500 variable genes - NB", intgroup=c("tumor_type", "Group"), ellipse = TRUE, text_labels = TRUE)
-pca_NB_ntop500
-dev.off()
+# Create and save individual PCA plots
+pca_full_ntop10000 <- create_pca_plot(rld_full, "PCA plot - top 10,000 variable genes - full", ntop = 10000)
+pca_NB_ntop10000 <- create_pca_plot(rld_NB, "PCA plot - top 10,000 variable genes - NB", ntop = 10000)
+pca_MM_ntop10000 <- create_pca_plot(rld_MM, "PCA plot - top 10,000 variable genes - MM", ntop = 10000)
+pca_sensSHY_ntop10000 <- create_pca_plot(rld_sensSHY, "PCA plot - top 10,000 variable genes - sensSHY", ntop = 10000)
 
-png(paste0(dir, "/PCA_MM_ntop500.png"), width = 900, height = 900)
-pca_MM_ntop500 <- pcaplot(rld_MM, title = "PCA plot - top 500 variable genes - MM", intgroup=c("tumor_type", "Group"), ellipse = TRUE, text_labels = TRUE)
-pca_MM_ntop500
-dev.off()
+# Save individual PCA plots with the same dimensions
+ggsave(paste0(dir, "/PCA_full_ntop10000.png"), plot = pca_full_ntop10000, width = 6, height = 6)
+ggsave(paste0(dir, "/PCA_NB_ntop10000.png"), plot = pca_NB_ntop10000, width = 6, height = 6)
+ggsave(paste0(dir, "/PCA_MM_ntop10000.png"), plot = pca_MM_ntop10000, width = 6, height = 6)
+ggsave(paste0(dir, "/PCA_sensSHY_ntop10000.png"), plot = pca_sensSHY_ntop10000, width = 6, height = 6)
 
-png(paste0(dir, "/PCA_sensSHY_ntop500.png"), width = 900, height = 900)
-pca_sensSHY_ntop500 <- pcaplot(rld_sensSHY, title = "PCA plot - top 500 variable genes - sensSHY", intgroup=c("tumor_type", "Group"), ellipse = TRUE, text_labels = TRUE)
-pca_sensSHY_ntop500
-dev.off()
-
-png(paste0(dir, "/PCA_combined_plots.png"), width = 900, height = 900)
-pca_combined_ntop500 <- grid.arrange(pca_full_ntop500, pca_NB_ntop500, pca_MM_ntop500, pca_sensSHY_ntop500, ncol=2)
-pca_combined_ntop500
-dev.off()
-
-## Top 10000
-
-png(paste0(dir, "/PCA_full_ntop10000.png"), width = 900, height = 900)
-pcaplot(rld_full, intgroup=c("tumor_type", "Group"), ellipse = TRUE, text_labels = TRUE, ntop = 10000)
-dev.off()
-
-png(paste0(dir, "/PCA_NB_ntop10000.png"), width = 900, height = 900)
-pcaplot(rld_NB, intgroup=c("tumor_type", "Group"), ellipse = TRUE, text_labels = TRUE, ntop = 10000)
-dev.off()
-
-png(paste0(dir, "/PCA_MM_ntop10000.png"), width = 900, height = 900)
-pcaplot(rld_MM, intgroup=c("tumor_type", "Group"), ellipse = TRUE, text_labels = TRUE, ntop = 10000)
-dev.off()
-
-png(paste0(dir, "/PCA_sensSHY_ntop10000.png"), width = 900, height = 900)
-pcaplot(rld_sensSHY, intgroup=c("tumor_type", "Group"), ellipse = TRUE, text_labels = TRUE, ntop = 10000)
-dev.off()
 ```
 
 
