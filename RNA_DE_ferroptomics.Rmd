@@ -32,6 +32,17 @@ library(gridExtra)
 ## 1. Read count table
 
 ```{r}
+contrasts <- list(c("Group", "R", "S"), c("Group", "R", "Ss"), c("Group", "S", "Ss"), c("Group", "R", "S"), c("Group", "R", "Ss"), c("Group", "S", "Ss"), c("Group", "R", "S"), c("Group", "R", "Ss"))
+affixes <- list("full", "full", "full", "NB", "NB", "NB", "MM", "sensSHY")
+
+# Combine the elements from both lists
+combined_list <- gsub(" ", "", paste0(affixes, "_", sapply(contrasts, function(x) paste(x[length(x) - 1], "_vs_", x[length(x)], collapse = ""))))
+
+# Print the combined list
+print(combined_list)
+```
+
+```{r}
 countdata_NB <- read.delim("count_matrices/countmatrix_NB.csv")
 countdata_newIMR <- read.delim("count_matrices/countmatrix_newIMR.csv")
 countdata_sensSHY <- read.delim("count_matrices/countmatrix_sensSHY.csv")
@@ -268,16 +279,6 @@ for (i in seq_along(dds_list)) {
   }
 }
 ```
-```{r}
-contrasts <- list(c("Group", "R", "S"), c("Group", "R", "Ss"), c("Group", "S", "Ss"), c("Group", "R", "S"), c("Group", "R", "Ss"), c("Group", "S", "Ss"), c("Group", "R", "S"), c("Group", "R", "Ss"))
-affixes <- list("full", "full", "full", "NB", "NB", "NB", "MM", "sensSHY")
-
-# Combine the elements from both lists
-combined_list <- gsub(" ", "", paste0(affixes, "_", sapply(contrasts, function(x) paste(x[length(x) - 1], "_vs_", x[length(x)], collapse = ""))))
-
-# Print the combined list
-print(combined_list)
-```
 
 
 ## 3. Get the results
@@ -419,6 +420,8 @@ for (i in seq_along(resdata_list)) {
   
   resdata_annot_list <- c(resdata_annot_list, list(resdata_annot))
 }
+
+names(resdata_annot_list) <- combined_list
 ```
 
 
@@ -674,9 +677,12 @@ generate_upset_plot <- function(gene_sets, ylabel, file){
   dev.off()
 }
 
-generate_upset_plot(gene_sets_up, "Gene Symbol Intersection Size - Upregulated", "outputs/DifferentialAnalysis/upset_plot_up.png")
-generate_upset_plot(gene_sets_down, "Gene Symbol Intersection Size - Downregulated","outputs/DifferentialAnalysis/upset_plot_down.png")
+sel <- c("full_R_vs_S", "full_R_vs_Ss", "NB_R_vs_S", "NB_R_vs_Ss", "MM_R_vs_S", "sensSHY_R_vs_Ss")
+
+generate_upset_plot(gene_sets_up[sel], "Gene Symbol Intersection Size - Upregulated", "outputs/DifferentialAnalysis/upset_plot_up.png")
+generate_upset_plot(gene_sets_down[sel], "Gene Symbol Intersection Size - Downregulated","outputs/DifferentialAnalysis/upset_plot_down.png")
 ```
+
 ```{r}
 library(ggplot2)
 library(dplyr)
@@ -696,9 +702,12 @@ calculate_set_sizes <- function(gene_sets, whitelist_genes) {
 }
 
 # Generate bar plot
-generate_bar_plot <- function(set_data, ylabel, file) {
+generate_bar_plot <- function(set_data, gene_sets, title, ylabel, file) {
   # Exclude the "whitelist" bar
   set_data <- set_data[set_data$Set != "whitelist", ]
+  
+  # Ensure the factor levels for the Set column match the order given by gene_sets
+  set_data$Set <- factor(set_data$Set, levels = names(gene_sets))
   
   ggplot(set_data, aes(x = Set)) +
     geom_bar(aes(y = Total_Size), stat = "identity", fill = "lightblue") +
@@ -713,7 +722,7 @@ generate_bar_plot <- function(set_data, ylabel, file) {
       axis.title = element_text(size = 14),
       plot.title = element_text(size = 16)
     ) +
-    ggtitle("Gene Set Whitelist Overlap") +
+    ggtitle(title) +
     theme(legend.position = "none")
   
   ggsave(file, width = 10, height = 6)
@@ -752,11 +761,74 @@ set_data_up <- calculate_set_sizes(gene_sets_up, whitelist_genes)
 set_data_down <- calculate_set_sizes(gene_sets_down, whitelist_genes)
 
 # Generate bar plots
-generate_bar_plot(set_data_up, "Gene Set Sizes - Upregulated", "outputs/DifferentialAnalysis/bar_plot_up.png")
-generate_bar_plot(set_data_down, "Gene Set Sizes - Downregulated", "outputs/DifferentialAnalysis/bar_plot_down.png")
-
+generate_bar_plot(set_data_up[sel, ], gene_sets_up[sel], "Differential Gene Set Overlap With Whitelist - Upregulated", "Gene Set Sizes - Upregulated", "outputs/DifferentialAnalysis/bar_plot_up.png")
+generate_bar_plot(set_data_down[sel, ], gene_sets_down[sel], "Differential Gene Set Overlap With Whitelist - Downregulated", "Gene Set Sizes - Downregulated", "outputs/DifferentialAnalysis/bar_plot_down.png")
 
 ```
+
+```{r}
+# Function to generate summary of DEGs
+generate_deg_summary <- function(resdata_annot_list, selected_datasets = NULL, output_file = "DEG_summary.csv") {
+  # Initialize a dataframe to store the results
+  summary_df <- data.frame(
+    Dataset = character(), 
+    Total_DEGs = integer(), 
+    Upregulated = integer(), 
+    Downregulated = integer(), 
+    Percent_Upregulated = character(), 
+    Percent_Downregulated = character(), 
+    stringsAsFactors = FALSE
+  )
+  
+  # Determine which datasets to include
+  if (is.null(selected_datasets)) {
+    selected_datasets <- names(resdata_annot_list)
+  }
+  
+  # Iterate over each selected dataframe in the list
+  for (dataset_name in selected_datasets) {
+    resdata_annot <- resdata_annot_list[[dataset_name]]
+    
+    # Filter DEGs based on padj and log2FoldChange, omitting NA values
+    upregulated <- sum(resdata_annot$padj < 0.05 & resdata_annot$log2FoldChange > 0, na.rm = TRUE)
+    downregulated <- sum(resdata_annot$padj < 0.05 & resdata_annot$log2FoldChange < 0, na.rm = TRUE)
+    
+    # Calculate total DEGs
+    total_degs <- upregulated + downregulated
+    
+    # Calculate percentages and format them
+    percent_upregulated <- if (total_degs > 0) {
+      sprintf("%.2f%%", (upregulated / total_degs) * 100)
+    } else {
+      "0.00%"
+    }
+    
+    percent_downregulated <- if (total_degs > 0) {
+      sprintf("%.2f%%", (downregulated / total_degs) * 100)
+    } else {
+      "0.00%"
+    }
+    
+    # Append the results to the dataframe
+    summary_df <- rbind(summary_df, data.frame(
+      Dataset = dataset_name, 
+      Total_DEGs = total_degs, 
+      Upregulated = upregulated, 
+      Downregulated = downregulated,
+      Percent_Upregulated = percent_upregulated, 
+      Percent_Downregulated = percent_downregulated
+    ))
+  }
+  
+  # Write the results to a CSV file
+  write.csv(summary_df, output_file, row.names = FALSE)
+  
+  # Print the results for verification
+  print(summary_df)
+}
+generate_deg_summary(resdata_annot_list, sel, "DEG_summary.csv")
+```
+
 
 
 
