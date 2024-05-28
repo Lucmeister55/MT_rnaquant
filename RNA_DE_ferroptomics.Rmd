@@ -32,17 +32,6 @@ library(gridExtra)
 ## 1. Read count table
 
 ```{r}
-contrasts <- list(c("Group", "R", "S"), c("Group", "R", "Ss"), c("Group", "S", "Ss"), c("Group", "R", "S"), c("Group", "R", "Ss"), c("Group", "S", "Ss"), c("Group", "R", "S"), c("Group", "R", "Ss"))
-affixes <- list("full", "full", "full", "NB", "NB", "NB", "MM", "sensSHY")
-
-# Combine the elements from both lists
-combined_list <- gsub(" ", "", paste0(affixes, "_", sapply(contrasts, function(x) paste(x[length(x) - 1], "_vs_", x[length(x)], collapse = ""))))
-
-# Print the combined list
-print(combined_list)
-```
-
-```{r}
 countdata_NB <- read.delim("count_matrices/countmatrix_NB.csv")
 countdata_newIMR <- read.delim("count_matrices/countmatrix_newIMR.csv")
 countdata_sensSHY <- read.delim("count_matrices/countmatrix_sensSHY.csv")
@@ -279,7 +268,16 @@ for (i in seq_along(dds_list)) {
   }
 }
 ```
+```{r}
+contrasts <- list(c("Group", "R", "S"), c("Group", "R", "Ss"), c("Group", "S", "Ss"), c("Group", "R", "S"), c("Group", "R", "Ss"), c("Group", "S", "Ss"), c("Group", "R", "S"), c("Group", "R", "Ss"))
+affixes <- list("full", "full", "full", "NB", "NB", "NB", "MM", "sensSHY")
 
+# Combine the elements from both lists
+combined_list <- gsub(" ", "", paste0(affixes, "_", sapply(contrasts, function(x) paste(x[length(x) - 1], "_vs_", x[length(x)], collapse = ""))))
+
+# Print the combined list
+print(combined_list)
+```
 
 ## 3. Get the results
 
@@ -687,7 +685,7 @@ generate_upset_plot(gene_sets_down[sel], "Gene Symbol Intersection Size - Downre
 library(ggplot2)
 library(dplyr)
 
-# Calculate set sizes and percentages
+# Function to calculate set sizes and percentages
 calculate_set_sizes <- function(gene_sets, whitelist_genes) {
   set_sizes <- sapply(gene_sets, length)
   intersect_sizes <- sapply(gene_sets, function(genes) length(intersect(genes, whitelist_genes)))
@@ -701,19 +699,20 @@ calculate_set_sizes <- function(gene_sets, whitelist_genes) {
   )
 }
 
-# Generate bar plot
-generate_bar_plot <- function(set_data, gene_sets, title, ylabel, file) {
+# Generate combined bar plot with green fill color
+generate_combined_bar_plot <- function(set_data, gene_sets, title, ylabel, file) {
   # Exclude the "whitelist" bar
   set_data <- set_data[set_data$Set != "whitelist", ]
   
   # Ensure the factor levels for the Set column match the order given by gene_sets
-  set_data$Set <- factor(set_data$Set, levels = names(gene_sets))
+  set_data$Set <- factor(set_data$Set, levels = unique(set_data$Set))
   
-  ggplot(set_data, aes(x = Set)) +
-    geom_bar(aes(y = Total_Size), stat = "identity", fill = "lightblue") +
-    geom_bar(aes(y = FRG_Size), stat = "identity", fill = "red", alpha = 0.7) +
-    geom_text(aes(y = FRG_Size, label = paste0(round(Percentage_FRG, 1), "%")), 
-              vjust = -0.5, size = 5, color = "black") +
+  ggplot(set_data, aes(x = Set, fill = Regulation)) +
+    geom_bar(aes(y = Total_Size), position = "dodge", stat = "identity") +
+    geom_bar(aes(y = FRG_Size, x = as.numeric(Set) + ifelse(Regulation == "Downregulated", -0.225, 0.225)), 
+             position = "dodge", stat = "identity", fill = alpha("green", 0.5), width = 0.45) +
+    geom_text(aes(y = FRG_Size, label = paste0(round(Percentage_FRG, 1), "%")),
+              vjust = -0.5, size = 3, position = position_dodge(width = 0.9), color = "black") +
     labs(y = ylabel, x = "Gene Sets") +
     theme_classic() +
     theme(
@@ -723,9 +722,9 @@ generate_bar_plot <- function(set_data, gene_sets, title, ylabel, file) {
       plot.title = element_text(size = 16)
     ) +
     ggtitle(title) +
-    theme(legend.position = "none")
+    theme(legend.position = "bottom")
   
-  ggsave(file, width = 10, height = 6)
+  ggsave(file, width = 12, height = 8)
 }
 
 # Read whitelist
@@ -757,14 +756,21 @@ gene_sets_up[["whitelist"]] <- whitelist_genes
 gene_sets_down[["whitelist"]] <- whitelist_genes
 
 # Calculate set sizes
-set_data_up <- calculate_set_sizes(gene_sets_up, whitelist_genes)
-set_data_down <- calculate_set_sizes(gene_sets_down, whitelist_genes)
+set_data_up <- calculate_set_sizes(gene_sets_up, whitelist_genes) %>%
+  mutate(Regulation = "Upregulated")
+set_data_down <- calculate_set_sizes(gene_sets_down, whitelist_genes) %>%
+  mutate(Regulation = "Downregulated")
 
-# Generate bar plots
-generate_bar_plot(set_data_up[sel, ], gene_sets_up[sel], "Differential Gene Set Overlap With Whitelist - Upregulated", "Gene Set Sizes - Upregulated", "outputs/DifferentialAnalysis/bar_plot_up.png")
-generate_bar_plot(set_data_down[sel, ], gene_sets_down[sel], "Differential Gene Set Overlap With Whitelist - Downregulated", "Gene Set Sizes - Downregulated", "outputs/DifferentialAnalysis/bar_plot_down.png")
+# Combine the datasets
+combined_set_data <- bind_rows(set_data_up, set_data_down)
 
+# Generate the combined bar plot
+generate_combined_bar_plot(combined_set_data, c(gene_sets_up, gene_sets_down), 
+                           "Differentially Expressed Gene Sets",
+                           "Gene Set Sizes", 
+                           "outputs/DifferentialAnalysis/combined_bar_plot.png")
 ```
+
 
 ```{r}
 # Function to generate summary of DEGs
