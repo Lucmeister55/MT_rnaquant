@@ -721,7 +721,6 @@ generate_combined_bar_plot <- function(set_data, gene_sets, title, ylabel, file)
       axis.title = element_text(size = 14),
       plot.title = element_text(size = 16)
     ) +
-    ggtitle(title) +
     theme(legend.position = "bottom")
   
   ggsave(file, width = 12, height = 8)
@@ -764,8 +763,14 @@ set_data_down <- calculate_set_sizes(gene_sets_down, whitelist_genes) %>%
 # Combine the datasets
 combined_set_data <- bind_rows(set_data_up, set_data_down)
 
+sel <- c("full_R_vs_S", "full_R_vs_Ss", "NB_R_vs_S", "NB_R_vs_Ss", "MM_R_vs_S", "sensSHY_R_vs_Ss")
+
+# Filter the combined_set_data based on sel
+combined_set_data_filtered <- combined_set_data %>%
+  filter(Set %in% sel)
+
 # Generate the combined bar plot
-generate_combined_bar_plot(combined_set_data, c(gene_sets_up, gene_sets_down), 
+generate_combined_bar_plot(combined_set_data_filtered, c(gene_sets_up, gene_sets_down), 
                            "Differentially Expressed Gene Sets",
                            "Gene Set Sizes", 
                            "outputs/DifferentialAnalysis/combined_bar_plot.png")
