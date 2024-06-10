@@ -798,11 +798,21 @@ generate_deg_summary <- function(resdata_annot_list, selected_datasets = NULL, o
   
   # Iterate over each selected dataframe in the list
   for (dataset_name in selected_datasets) {
-    resdata_annot <- resdata_annot_list[[dataset_name]]
+    resdata_annot <- resdata_annot_list[[dataset_name]] %>%
+        filter(padj < 0.05)
+    
+    resdata_upregulated <- resdata_annot %>%
+      filter(log2FoldChange > 0)
+    
+    resdata_downregulated <- resdata_annot %>%
+      filter(log2FoldChange < 0)
+    
+    upregulated <- length(unique(na.omit(resdata_upregulated$name)))
+    downregulated <- length(unique(na.omit(resdata_downregulated$name)))
     
     # Filter DEGs based on padj and log2FoldChange, omitting NA values
-    upregulated <- sum(resdata_annot$padj < 0.05 & resdata_annot$log2FoldChange > 0, na.rm = TRUE)
-    downregulated <- sum(resdata_annot$padj < 0.05 & resdata_annot$log2FoldChange < 0, na.rm = TRUE)
+    # upregulated <- sum(resdata_annot$padj < 0.05 & resdata_annot$log2FoldChange > 0, na.rm = TRUE)
+    # downregulated <- sum(resdata_annot$padj < 0.05 & resdata_annot$log2FoldChange < 0, na.rm = TRUE)
     
     # Calculate total DEGs
     total_degs <- upregulated + downregulated
