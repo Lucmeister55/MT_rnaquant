@@ -32,7 +32,8 @@ library(gridExtra)
 ## 1. Read count table
 
 ```{r}
-countdata_NB <- read.delim("count_matrices/countmatrix_NB.csv")
+countdata_NB <- read.delim("count_matrices/countmatrix_NB.csv") %>%
+  select(-starts_with("RIMR"))
 countdata_newIMR <- read.delim("count_matrices/countmatrix_newIMR.csv")
 countdata_sensSHY <- read.delim("count_matrices/countmatrix_sensSHY.csv")
 countdata_MM <- read.delim("count_matrices/countmatrix_MM.csv")
